@@ -1,0 +1,32 @@
+name: Build and Deploy to KraftCloud
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install kraft CLI
+        run: |
+          curl -sfL https://get.kraftkit.sh | sh
+
+      - name: Deploy to KraftCloud
+        env:
+          UKC_TOKEN: ${{ secrets.UKC_TOKEN }}
+          UKC_METRO: fra0
+        run: |
+          kraft cloud deploy \
+            --name abp-unikraft \
+            --runtime index.unikraft.io/official/base-compat:latest \
+            --scale-to-zero idle \
+            --scale-to-zero-stateful \
+            --scale-to-zero-cooldown 5s \
+            -p 443:15678 \
+            -M 4096 \
+            --no-prompt \
+            .
