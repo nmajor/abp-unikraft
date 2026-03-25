@@ -5,6 +5,9 @@ on:
   push:
     branches: [main]
 
+env:
+  KRAFT_VERSION: "0.12.6-26-gd96d6411"
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -13,7 +16,10 @@ jobs:
 
       - name: Install kraft CLI
         run: |
-          curl -sfL https://get.kraftkit.sh | sudo sh
+          wget -q "https://github.com/unikraft/kraftkit/releases/download/v${KRAFT_VERSION}/kraftkit_${KRAFT_VERSION}_linux_amd64.deb" \
+            -O /tmp/kraftkit.deb
+          sudo dpkg -i /tmp/kraftkit.deb
+          kraft version
 
       - name: Deploy to KraftCloud
         env:
