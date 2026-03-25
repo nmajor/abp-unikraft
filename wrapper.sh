@@ -12,7 +12,6 @@ exec "${ABP_BINARY}" \
     --no-sandbox \
     --disable-gpu \
     --disable-dev-shm-usage \
-    --disable-software-rasterizer \
     --use-mock-keychain \
     --user-data-dir=/tmp/abp-data \
     --abp-session-dir=/tmp/abp-sessions \

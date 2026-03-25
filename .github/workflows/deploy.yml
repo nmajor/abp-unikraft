@@ -27,12 +27,15 @@ jobs:
           UKC_METRO: fra0
         run: |
           kraft cloud deploy \
+            --token "${UKC_TOKEN}" \
+            --metro fra0 \
             --name abp-unikraft \
             --runtime index.unikraft.io/official/base-compat:latest \
             --scale-to-zero idle \
             --scale-to-zero-stateful \
             --scale-to-zero-cooldown 5s \
             --compress \
+            --restart on-failure \
             -p 443:15678 \
             -M 4096 \
             --no-prompt \

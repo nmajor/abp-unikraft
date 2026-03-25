@@ -17,7 +17,6 @@ RUN wget -q "https://github.com/theredsix/agent-browser-protocol/releases/downlo
     && rm -rf /opt/abp/abp-chrome/default_apps \
     && rm -rf /opt/abp/abp-chrome/resources \
     && rm -f /opt/abp/abp-chrome/chrome_management_service \
-    && rm -f /opt/abp/abp-chrome/chrome_crashpad_handler \
     && rm -f /opt/abp/abp-chrome/chrome_sandbox \
     # Keep only en-US locale
     && find /opt/abp/abp-chrome/locales -type f ! -name 'en-US.pak' -delete \
