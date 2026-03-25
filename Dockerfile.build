@@ -1,0 +1,53 @@
+# Dockerfile for building ABP with stealth patches.
+#
+# This produces a Linux x86_64 ABP binary with all stealth patches applied.
+# Run via scripts/build-linux-via-docker.sh.
+#
+# The source tree is stored in a Docker volume (/build) so incremental
+# rebuilds are fast (minutes instead of hours).
+
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install Chromium build dependencies.
+# This list comes from Chromium's install-build-deps.sh.
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    clang \
+    cmake \
+    curl \
+    git \
+    gperf \
+    libcups2-dev \
+    libdrm-dev \
+    libgbm-dev \
+    libgtk-3-dev \
+    libkrb5-dev \
+    libnss3-dev \
+    libpango1.0-dev \
+    libpulse-dev \
+    libudev-dev \
+    libva-dev \
+    libxcomposite-dev \
+    libxdamage-dev \
+    libxrandr-dev \
+    libxshmfence-dev \
+    lsb-release \
+    ninja-build \
+    nodejs \
+    npm \
+    pkg-config \
+    python3 \
+    python3-pip \
+    sudo \
+    wget \
+    xz-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+# The actual build runs as a script inside the container.
+# This lets us use the Docker volume for caching.
+COPY scripts/docker-build-inner.sh /docker-build-inner.sh
+RUN chmod +x /docker-build-inner.sh
+
+CMD ["/docker-build-inner.sh"]
