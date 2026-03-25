@@ -13,7 +13,7 @@ jobs:
 
       - name: Install kraft CLI
         run: |
-          curl -sfL https://get.kraftkit.sh | sh
+          curl -sfL https://get.kraftkit.sh | sudo sh
 
       - name: Deploy to KraftCloud
         env:
