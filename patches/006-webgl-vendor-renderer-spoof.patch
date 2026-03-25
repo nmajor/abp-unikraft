@@ -1,0 +1,66 @@
+Description: Override WebGL UNMASKED_VENDOR_WEBGL and UNMASKED_RENDERER_WEBGL
+ to return spoofed GPU strings instead of "Google SwiftShader". SwiftShader
+ exists on zero consumer devices and is a high-confidence headless signal.
+
+ The spoofed strings are read from --abp-fingerprint-gpu-vendor and
+ --abp-fingerprint-gpu-renderer, or auto-selected from the GPU model
+ database based on the fingerprint seed and platform.
+
+--- a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
++++ b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
+@@ -40,6 +40,8 @@
+ #include "third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.h"
+
+ #include <memory>
++#include "base/command_line.h"
++#include "chrome/browser/abp/stealth/abp_stealth_utils.h"
+
+ namespace blink {
+
+@@ -2000,6 +2002,38 @@ ScriptValue WebGLRenderingContextBase::getParameter(ScriptState* script_state,
+     case WebGLDebugRendererInfo::kUnmaskedVendorWebgl:
+       if (ExtensionEnabled(kWebGLDebugRendererInfoName)) {
++        // ABP stealth: return spoofed GPU vendor if fingerprinting is active.
++        if (abp::stealth::IsStealthEnabled()) {
++          std::string vendor = abp::stealth::GetGpuVendor();
++          if (vendor.empty()) {
++            // Auto-select from data table based on seed + platform.
++            #include "chrome/browser/abp/stealth/abp_fingerprint_data.h"
++            std::string platform = abp::stealth::GetFingerprintPlatform();
++            uint64_t idx = abp::stealth::HashWithDomain("gpu-model");
++            if (platform == "macos") {
++              vendor = abp::stealth::data::kMacGpuModels[idx % abp::stealth::data::kMacGpuModelCount].vendor;
++            } else if (platform == "linux") {
++              vendor = abp::stealth::data::kLinuxGpuModels[idx % abp::stealth::data::kLinuxGpuModelCount].vendor;
++            } else {
++              vendor = abp::stealth::data::kWindowsGpuModels[idx % abp::stealth::data::kWindowsGpuModelCount].vendor;
++            }
++          }
++          return WebGLAny(script_state, String::FromUTF8(vendor));
++        }
+         synthesized_gl_id =
+             ContextGL()->GetString(GL_VENDOR);
+       }
+@@ -2010,6 +2044,26 @@ ScriptValue WebGLRenderingContextBase::getParameter(ScriptState* script_state,
+     case WebGLDebugRendererInfo::kUnmaskedRendererWebgl:
+       if (ExtensionEnabled(kWebGLDebugRendererInfoName)) {
++        // ABP stealth: return spoofed GPU renderer.
++        if (abp::stealth::IsStealthEnabled()) {
++          std::string renderer = abp::stealth::GetGpuRenderer();
++          if (renderer.empty()) {
++            #include "chrome/browser/abp/stealth/abp_fingerprint_data.h"
++            std::string platform = abp::stealth::GetFingerprintPlatform();
++            uint64_t idx = abp::stealth::HashWithDomain("gpu-model");
++            if (platform == "macos") {
++              renderer = abp::stealth::data::kMacGpuModels[idx % abp::stealth::data::kMacGpuModelCount].renderer;
++            } else if (platform == "linux") {
++              renderer = abp::stealth::data::kLinuxGpuModels[idx % abp::stealth::data::kLinuxGpuModelCount].renderer;
++            } else {
++              renderer = abp::stealth::data::kWindowsGpuModels[idx % abp::stealth::data::kWindowsGpuModelCount].renderer;
++            }
++          }
++          return WebGLAny(script_state, String::FromUTF8(renderer));
++        }
+         synthesized_gl_id =
+             ContextGL()->GetString(GL_RENDERER);
+       }

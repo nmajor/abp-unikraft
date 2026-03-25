@@ -1,0 +1,28 @@
+Description: Make navigator.webdriver always return false at the C++ level.
+ This is more robust than --disable-blink-features=AutomationControlled
+ because it works regardless of how automation is attached, and returns
+ false (like a real browser) instead of undefined (which is also detectable).
+
+--- a/third_party/blink/renderer/core/frame/navigator.cc
++++ b/third_party/blink/renderer/core/frame/navigator.cc
+@@ -32,6 +32,7 @@
+ #include "third_party/blink/renderer/core/frame/navigator.h"
+
+ #include "base/feature_list.h"
++#include "base/command_line.h"
+ #include "third_party/blink/public/common/features.h"
+ #include "third_party/blink/renderer/core/frame/local_dom_window.h"
+ #include "third_party/blink/renderer/core/frame/local_frame.h"
+@@ -100,6 +101,13 @@ String Navigator::platform() const {
+ }
+
+ bool Navigator::webdriver() const {
++  // ABP stealth: when --abp-fingerprint is set, always report false.
++  // This matches a real non-automated browser. Unlike deleting the property
++  // (which returns undefined and is itself detectable), returning false is
++  // the spec-compliant value for a non-automated browser.
++  if (base::CommandLine::ForCurrentProcess()->HasSwitch("abp-fingerprint"))
++    return false;
++
+   return RuntimeEnabledFeatures::AutomationControlledEnabled();
+ }

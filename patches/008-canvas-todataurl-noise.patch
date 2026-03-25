@@ -1,0 +1,29 @@
+Description: Apply canvas fingerprint noise to toDataURL() and toBlob()
+ by intercepting the image encoding path.
+
+--- a/third_party/blink/renderer/platform/graphics/image_data_buffer.cc
++++ b/third_party/blink/renderer/platform/graphics/image_data_buffer.cc
+@@ -10,6 +10,7 @@
+ #include "third_party/blink/renderer/platform/graphics/image_data_buffer.h"
+
+ #include "base/memory/ptr_util.h"
++#include "chrome/browser/abp/stealth/abp_stealth_utils.h"
+ #include "third_party/blink/renderer/platform/image-encoders/image_encoder.h"
+ #include "third_party/skia/include/core/SkImage.h"
+ #include "third_party/skia/include/core/SkSurface.h"
+@@ -70,6 +71,16 @@ bool ImageDataBuffer::EncodeImage(const ImageEncodingMimeType mime_type,
+   if (!data_ || !size_.width() || !size_.height())
+     return false;
+
++  // ABP stealth: apply canvas noise before encoding for toDataURL/toBlob.
++  // We modify the pixel buffer in-place before the encoder reads it.
++  if (abp::stealth::IsStealthEnabled() && data_) {
++    SkImageInfo info = SkImageInfo::Make(
++        size_.width(), size_.height(),
++        kRGBA_8888_SkColorType, kUnpremul_SkAlphaType);
++    abp::stealth::ShuffleSubchannelColorData(
++        const_cast<uint8_t*>(data_), info, 0, 0);
++  }
++
+   return ImageEncoder::Encode(encoded_image, *pixmap_, mime_type, quality);
+ }

@@ -1,0 +1,24 @@
+Description: Add seed-deterministic noise to canvas measureText() metrics.
+ Text measurement is used for font fingerprinting — slight per-session
+ variation defeats it.
+
+--- a/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
++++ b/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
+@@ -2200,6 +2200,19 @@ TextMetrics* BaseRenderingContext2D::measureText(const String& text) {
+   TextMetrics* metrics = MakeGarbageCollected<TextMetrics>();
+   // ... existing measurement logic ...
+
++  // ABP stealth: apply deterministic noise to text metrics.
++  if (abp::stealth::IsStealthEnabled()) {
++    double factor = 1.0 + (abp::stealth::NormalizedHash("measuretext") - 0.5) * 0.00002;
++    metrics->SetWidth(metrics->width() * factor);
++    metrics->SetActualBoundingBoxLeft(metrics->actualBoundingBoxLeft() * factor);
++    metrics->SetActualBoundingBoxRight(metrics->actualBoundingBoxRight() * factor);
++    metrics->SetFontBoundingBoxAscent(metrics->fontBoundingBoxAscent() * factor);
++    metrics->SetFontBoundingBoxDescent(metrics->fontBoundingBoxDescent() * factor);
++    metrics->SetActualBoundingBoxAscent(metrics->actualBoundingBoxAscent() * factor);
++    metrics->SetActualBoundingBoxDescent(metrics->actualBoundingBoxDescent() * factor);
++  }
++
+   return metrics;
+ }

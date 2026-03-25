@@ -1,0 +1,34 @@
+Description: Apply deterministic subchannel color noise to canvas getImageData()
+ readbacks. This defeats canvas fingerprinting by producing a unique-per-seed
+ but stable-per-session fingerprint, identical to what a real browser with
+ slightly different GPU/driver would produce.
+
+ Based on the Bromite/fingerprint-chromium approach.
+
+--- a/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
++++ b/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
+@@ -40,6 +40,7 @@
+ #include "third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.h"
+
+ #include <algorithm>
++#include "chrome/browser/abp/stealth/abp_stealth_utils.h"
+
+ namespace blink {
+
+@@ -1800,6 +1801,18 @@ ImageData* BaseRenderingContext2D::getImageDataInternal(
+   if (!snapshot)
+     return nullptr;
+
++  // ABP stealth: apply canvas fingerprint noise after reading pixels.
++  // This runs after readPixels() succeeds and before returning to JS.
++  if (abp::stealth::IsStealthEnabled()) {
++    SkPixmap pixmap;
++    if (snapshot->PeekPixels(&pixmap)) {
++      abp::stealth::ShuffleSubchannelColorData(
++          static_cast<uint8_t*>(pixmap.writable_addr()),
++          pixmap.info(),
++          sx, sy);
++    }
++  }
++
+   return MakeGarbageCollected<ImageData>(

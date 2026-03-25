@@ -1,0 +1,59 @@
+Description: Filter font enumeration to only return fonts matching the
+ spoofed platform. Real Windows machines have a different font set than
+ Linux servers. Without this patch, the font list reveals the true OS.
+
+--- a/third_party/blink/renderer/platform/fonts/font_cache.cc
++++ b/third_party/blink/renderer/platform/fonts/font_cache.cc
+@@ -30,6 +30,8 @@
+ #include "third_party/blink/renderer/platform/fonts/font_cache.h"
+
+ #include <algorithm>
++#include "base/command_line.h"
++#include "chrome/browser/abp/stealth/abp_stealth_utils.h"
++#include "chrome/browser/abp/stealth/abp_fingerprint_data.h"
+
+ namespace blink {
+
+@@ -500,6 +502,40 @@ void FontCache::GetFontFamilyNames(
+     HashSet<AtomicString>& family_names) {
+   EnumeratePlatformFontFamilies(family_names);
+
++  // ABP stealth: filter font list to match the spoofed platform.
++  // The real system font list reveals the true OS (e.g., "Segoe UI" = Windows,
++  // "Helvetica Neue" = macOS, "DejaVu Sans" = Linux). We replace the
++  // enumerated list with the appropriate platform font set.
++  if (abp::stealth::IsStealthEnabled()) {
++    std::string platform = abp::stealth::GetFingerprintPlatform();
++
++    const char* const* font_list = nullptr;
++    size_t font_count = 0;
++
++    if (platform == "windows") {
++      font_list = abp::stealth::data::kWindowsFonts;
++      font_count = abp::stealth::data::kWindowsFontCount;
++    } else if (platform == "macos") {
++      font_list = abp::stealth::data::kMacFonts;
++      font_count = abp::stealth::data::kMacFontCount;
++    }
++
++    if (font_list && font_count > 0) {
++      // Build allowed set.
++      HashSet<String> allowed;
++      for (size_t i = 0; i < font_count; ++i)
++        allowed.insert(String::FromUTF8(font_list[i]));
++
++      // Remove fonts not in the allowed set.
++      Vector<AtomicString> to_remove;
++      for (const auto& name : family_names) {
++        if (!allowed.Contains(name.GetString()))
++          to_remove.push_back(name);
++      }
++      for (const auto& name : to_remove)
++        family_names.erase(name);
++
++      // Add any missing fonts from the allowed set.
++      for (size_t i = 0; i < font_count; ++i)
++        family_names.insert(AtomicString(String::FromUTF8(font_list[i])));
++    }
++  }
+ }

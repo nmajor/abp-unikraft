@@ -1,0 +1,28 @@
+Description: Override the system timezone with --abp-timezone to match
+ the geo of the proxy being used. Without this, Date methods and
+ Intl.DateTimeFormat reveal the server's timezone (e.g., UTC or
+ Europe/Berlin), conflicting with a US residential proxy IP.
+
+--- a/third_party/blink/renderer/core/timezone/timezone_controller.cc
++++ b/third_party/blink/renderer/core/timezone/timezone_controller.cc
+@@ -10,6 +10,8 @@
+ #include "third_party/blink/renderer/core/timezone/timezone_controller.h"
+
+ #include "base/feature_list.h"
++#include "base/command_line.h"
++#include "chrome/browser/abp/stealth/abp_stealth_utils.h"
+ #include "third_party/icu/source/i18n/unicode/timezone.h"
+
+ namespace blink {
+
+@@ -30,6 +32,14 @@ void TimezoneController::Init() {
+ String TimezoneController::GetCurrentTimezoneId() {
++  // ABP stealth: override timezone if --abp-timezone is set.
++  if (abp::stealth::IsStealthEnabled()) {
++    std::string tz = abp::stealth::GetTimezone();
++    if (!tz.empty()) {
++      return String::FromUTF8(tz);
++    }
++  }
++
+   icu::UnicodeString unicode_timezone_id;

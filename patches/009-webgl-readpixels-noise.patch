@@ -1,0 +1,30 @@
+Description: Apply fingerprint noise to WebGL readPixels() calls.
+
+--- a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
++++ b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
+@@ -3500,6 +3500,28 @@ void WebGLRenderingContextBase::readPixels(
+   ContextGL()->ReadPixels(x, y, width, height, format, type, pixels);
+
++  // ABP stealth: apply noise to WebGL pixel readback.
++  if (abp::stealth::IsStealthEnabled() && pixels) {
++    SkColorType sk_type;
++    switch (format) {
++      case GL_RGBA:
++        sk_type = kRGBA_8888_SkColorType;
++        break;
++      case GL_RGB:
++        sk_type = kRGB_888x_SkColorType;
++        break;
++      default:
++        sk_type = kRGBA_8888_SkColorType;
++        break;
++    }
++    if (type == GL_UNSIGNED_BYTE) {
++      SkImageInfo info = SkImageInfo::Make(
++          width, height, sk_type, kUnpremul_SkAlphaType);
++      abp::stealth::ShuffleSubchannelColorData(
++          static_cast<uint8_t*>(pixels), info, x, y);
++    }
++  }
++
+   //

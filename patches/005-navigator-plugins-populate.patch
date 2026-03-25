@@ -1,0 +1,28 @@
+Description: Ensure navigator.plugins is populated even in headless mode.
+ Real Chrome always reports 5 PDF-related plugins. Headless Chrome reports
+ an empty array because IsPdfViewerAvailable() returns false when no
+ plugin data exists. This patch forces the fake plugin list unconditionally.
+
+--- a/third_party/blink/renderer/modules/plugins/dom_plugin_array.cc
++++ b/third_party/blink/renderer/modules/plugins/dom_plugin_array.cc
+@@ -10,6 +10,7 @@
+
+ #include "third_party/blink/renderer/modules/plugins/dom_plugin_array.h"
+
++#include "base/command_line.h"
+ #include "third_party/blink/renderer/core/frame/local_dom_window.h"
+ #include "third_party/blink/renderer/core/page/page.h"
+ #include "third_party/blink/renderer/modules/plugins/dom_mime_type.h"
+@@ -30,7 +31,12 @@ DOMPluginArray::DOMPluginArray(LocalDOMWindow* window)
+     : Supplement<Navigator>(*window->navigator()),
+       ExecutionContextLifecycleObserver(window) {
+-  if (IsPdfViewerAvailable()) {
++  // ABP stealth: always populate the plugin list when fingerprinting is
++  // active. In headless mode, IsPdfViewerAvailable() returns false because
++  // no plugin data is registered, causing an empty navigator.plugins array
++  // which is a strong headless detection signal.
++  bool force_plugins = base::CommandLine::ForCurrentProcess()->HasSwitch("abp-fingerprint");
++  if (force_plugins || IsPdfViewerAvailable()) {
+     Vector<String> plugins{"PDF Viewer", "Chrome PDF Viewer",
+         "Chromium PDF Viewer", "Microsoft Edge PDF Viewer",
+         "WebKit built-in PDF"};

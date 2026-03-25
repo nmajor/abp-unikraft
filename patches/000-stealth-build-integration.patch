@@ -1,0 +1,18 @@
+--- a/chrome/browser/abp/BUILD.gn
++++ b/chrome/browser/abp/BUILD.gn
+@@ -1,5 +1,8 @@
+ # ABP build configuration
+
++import("//chrome/browser/abp/stealth/BUILD.gn")
++
+ source_set("switches") {
+   sources = [
+     "abp_switches.cc",
+@@ -10,6 +13,8 @@ source_set("abp") {
+   deps = [
+     ":switches",
++    "//chrome/browser/abp/stealth",
++    "//chrome/browser/abp/stealth:stealth_switches",
+     "//base",
+     "//chrome/browser/ui",
+     "//content/public/browser",

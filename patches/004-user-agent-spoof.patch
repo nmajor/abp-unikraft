@@ -1,0 +1,35 @@
+Description: Remove "HeadlessChrome" from the User-Agent string and spoof
+ the platform section based on --abp-fingerprint-platform.
+
+--- a/components/embedder_support/user_agent_utils.cc
++++ b/components/embedder_support/user_agent_utils.cc
+@@ -20,6 +20,7 @@
+ #include "base/strings/strcat.h"
+ #include "base/strings/string_util.h"
+ #include "base/system/sys_info.h"
++#include "base/command_line.h"
+ #include "build/branding_buildflags.h"
+ #include "components/embedder_support/switches.h"
+ #include "components/version_info/version_info.h"
+@@ -150,6 +151,30 @@ std::string GetPlatformForUAString() {
+ }
+
+ std::string BuildOSCpuInfoFromOSVersionAndCpuType(
+     const std::string& os_version, const std::string& cpu_type) {
++  // ABP stealth: override the OS/CPU info section of the UA string.
++  auto* cmd = base::CommandLine::ForCurrentProcess();
++  if (cmd->HasSwitch("abp-fingerprint")) {
++    std::string platform = cmd->GetSwitchValueASCII("abp-fingerprint-platform");
++    if (platform.empty())
++      platform = "windows";
++
++    if (platform == "windows") {
++      return "Windows NT 10.0; Win64; x64";
++    } else if (platform == "macos") {
++      return "Macintosh; Intel Mac OS X 10_15_7";
++    } else if (platform == "linux") {
++      return "X11; Linux x86_64";
++    }
++  }
++
+   // ...original implementation follows...

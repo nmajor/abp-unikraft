@@ -1,0 +1,33 @@
+Description: Add seed-deterministic sub-pixel noise to getBoundingClientRect()
+ and getClientRects(). This defeats element measurement fingerprinting while
+ remaining visually imperceptible (±0.001px).
+
+--- a/third_party/blink/renderer/core/dom/element.cc
++++ b/third_party/blink/renderer/core/dom/element.cc
+@@ -40,6 +40,7 @@
+ #include "third_party/blink/renderer/core/dom/element.h"
+
+ #include <algorithm>
++#include "chrome/browser/abp/stealth/abp_stealth_utils.h"
+
+ namespace blink {
+
+@@ -1200,6 +1201,20 @@ DOMRect* Element::getBoundingClientRect() {
+   DOMRect* result = DOMRect::Create();
+   // ... existing rect computation ...
+
++  // ABP stealth: add deterministic sub-pixel noise to client rects.
++  if (abp::stealth::IsStealthEnabled()) {
++    double noise_x = (abp::stealth::NormalizedHash("rect-x") - 0.5) * 0.002;
++    double noise_y = (abp::stealth::NormalizedHash("rect-y") - 0.5) * 0.002;
++    double noise_w = (abp::stealth::NormalizedHash("rect-w") - 0.5) * 0.002;
++    double noise_h = (abp::stealth::NormalizedHash("rect-h") - 0.5) * 0.002;
++
++    result->setX(result->x() + noise_x);
++    result->setY(result->y() + noise_y);
++    result->setWidth(result->width() + noise_w);
++    result->setHeight(result->height() + noise_h);
++  }
++
+   return result;
+ }

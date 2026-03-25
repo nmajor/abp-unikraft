@@ -1,0 +1,40 @@
+Description: At browser startup, force-remove command-line flags that are
+ telltale signs of automation. Also force-append
+ --disable-blink-features=AutomationControlled as defense-in-depth.
+
+ This modifies ABP's existing hook point in chrome_browser_main.cc.
+
+--- a/chrome/browser/chrome_browser_main.cc
++++ b/chrome/browser/chrome_browser_main.cc
+@@ -943,6 +943,33 @@ int ChromeBrowserMainParts::PreMainMessageLoopRunImpl() {
+   // ABP: suppress first-run dialogs.
+   command_line->AppendSwitch("no-first-run");
+   command_line->AppendSwitch("no-default-browser-check");
++
++  // ABP stealth: when --abp-fingerprint is set, clean up automation signals.
++  if (command_line->HasSwitch("abp-fingerprint")) {
++    // Remove flags that indicate automation.
++    static const char* const kFlagsToRemove[] = {
++        "enable-automation",
++        "disable-component-update",
++        "disable-default-apps",
++        "disable-extensions",
++        "disable-popup-blocking",
++        "disable-client-side-phishing-detection",
++        "disable-component-extensions-with-background-pages",
++        "metrics-recording-only",
++        "disable-back-forward-cache",
++        "allow-pre-commit-input",
++        "disable-ipc-flooding-protection",
++    };
++
++    for (const char* flag : kFlagsToRemove) {
++      // CommandLine doesn't have RemoveSwitch, so we work around it.
++      // The switches are stored in a map; we access it directly.
++      command_line->RemoveSwitch(flag);
++    }
++
++    // Add defense-in-depth: disable the AutomationControlled Blink feature.
++    command_line->AppendSwitchASCII(
++        "disable-blink-features", "AutomationControlled");
++  }

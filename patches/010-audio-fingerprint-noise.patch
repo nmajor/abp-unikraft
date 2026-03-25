@@ -1,0 +1,40 @@
+Description: Apply deterministic noise to OfflineAudioContext rendering
+ to defeat audio fingerprinting. Adds ±1% jitter to frame count and
+ minor sample rate noise, both seeded from --abp-fingerprint.
+
+--- a/third_party/blink/renderer/modules/webaudio/offline_audio_context.cc
++++ b/third_party/blink/renderer/modules/webaudio/offline_audio_context.cc
+@@ -10,6 +10,8 @@
+
+ #include "third_party/blink/renderer/modules/webaudio/offline_audio_context.h"
+
++#include "base/command_line.h"
++#include "chrome/browser/abp/stealth/abp_stealth_utils.h"
+ #include "third_party/blink/renderer/bindings/modules/v8/v8_offline_audio_context_options.h"
+ #include "third_party/blink/renderer/modules/webaudio/audio_buffer.h"
+ #include "third_party/blink/renderer/modules/webaudio/base_audio_context.h"
+@@ -60,6 +62,22 @@ OfflineAudioContext* OfflineAudioContext::Create(
+     unsigned number_of_channels,
+     unsigned number_of_frames,
+     float sample_rate,
+     ExceptionState& exception_state) {
++  // ABP stealth: apply deterministic noise to audio context parameters.
++  if (abp::stealth::IsStealthEnabled()) {
++    // Frame count noise: ±1% (max 1000 frames).
++    uint64_t frame_hash = abp::stealth::HashWithDomain(
++        "audio-frames:" + std::to_string(number_of_frames));
++    int max_noise = std::min(static_cast<int>(number_of_frames / 100), 1000);
++    if (max_noise > 0) {
++      int noise = static_cast<int>(frame_hash % (2 * max_noise + 1)) - max_noise;
++      number_of_frames = static_cast<unsigned>(
++          std::max(1, static_cast<int>(number_of_frames) + noise));
++    }
++
++    // Sample rate noise: ±0.01.
++    uint64_t sr_hash = abp::stealth::HashWithDomain(
++        "audio-sr:" + std::to_string(static_cast<int>(sample_rate)));
++    double sr_noise = (static_cast<double>(sr_hash % 2001) - 1000.0) / 100000.0;
++    sample_rate += static_cast<float>(sr_noise);
++  }
+
+   // ...original validation and creation follows...

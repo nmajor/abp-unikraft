@@ -1,0 +1,54 @@
+Description: Return realistic window.outerWidth/outerHeight values in
+ headless mode. Real browsers always have toolbar/frame offsets, so
+ outerHeight > innerHeight. Headless returns 0 for both, which is
+ a strong detection signal.
+
+--- a/third_party/blink/renderer/core/frame/local_dom_window.cc
++++ b/third_party/blink/renderer/core/frame/local_dom_window.cc
+@@ -40,6 +40,8 @@
+ #include "third_party/blink/renderer/core/frame/local_dom_window.h"
+
+ #include <memory>
++#include "base/command_line.h"
++#include "chrome/browser/abp/stealth/abp_stealth_utils.h"
++#include "chrome/browser/abp/stealth/abp_fingerprint_data.h"
+
+ namespace blink {
+
+@@ -800,6 +802,22 @@ int LocalDOMWindow::outerHeight() const {
+   if (!frame)
+     return 0;
+
++  // ABP stealth: in headless mode, RootWindowRect returns zero.
++  // Return innerHeight + toolbar height for the spoofed platform.
++  if (abp::stealth::IsStealthEnabled()) {
++    int inner = innerHeight();
++    if (inner > 0) {
++      std::string platform = abp::stealth::GetFingerprintPlatform();
++      int chrome_top = abp::stealth::data::kWindowsChrome.top;
++      if (platform == "macos")
++        chrome_top = abp::stealth::data::kMacChrome.top;
++      else if (platform == "linux")
++        chrome_top = abp::stealth::data::kLinuxChrome.top;
++      return inner + chrome_top;
++    }
++  }
++
+   Page* page = frame->GetPage();
+@@ -820,6 +838,16 @@ int LocalDOMWindow::outerWidth() const {
+   if (!frame)
+     return 0;
+
++  // ABP stealth: return innerWidth + frame borders.
++  if (abp::stealth::IsStealthEnabled()) {
++    int inner = innerWidth();
++    if (inner > 0) {
++      std::string platform = abp::stealth::GetFingerprintPlatform();
++      int borders = abp::stealth::data::kWindowsChrome.left + abp::stealth::data::kWindowsChrome.right;
++      if (platform == "macos" || platform == "linux")
++        borders = 0;  // macOS/Linux Chrome has no side borders.
++      return inner + borders;
++    }
++  }
++
+   Page* page = frame->GetPage();

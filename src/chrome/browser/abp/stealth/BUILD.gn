@@ -1,0 +1,23 @@
+# Copyright 2025 anthropic-abp-unikraft contributors
+# Use of this source code is governed by a BSD-style license.
+
+source_set("stealth_switches") {
+  sources = [
+    "abp_stealth_switches.cc",
+    "abp_stealth_switches.h",
+  ]
+}
+
+source_set("stealth") {
+  sources = [
+    "abp_fingerprint_data.h",
+    "abp_stealth_utils.cc",
+    "abp_stealth_utils.h",
+  ]
+
+  deps = [
+    ":stealth_switches",
+    "//base",
+    "//skia",
+  ]
+}

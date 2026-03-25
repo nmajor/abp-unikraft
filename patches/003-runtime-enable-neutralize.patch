@@ -1,0 +1,40 @@
+Description: Neutralize the Runtime.enable CDP side effects that anti-bot
+ systems use for detection. When --abp-fingerprint is set, Runtime.enable
+ no longer installs the full inspector session machinery that triggers
+ the console.debug() detection vector.
+
+ This is the single most critical stealth patch. Cloudflare Turnstile,
+ DataDome, and other major anti-bot systems detect automation by calling
+ console.debug() with an Error object that has a custom .stack getter.
+ When Runtime.enable is active, Chrome serializes the Error for the
+ Runtime.consoleAPICalled event, triggering the getter and flipping
+ a detection flag.
+
+ Note: ABP itself never calls Runtime.enable, but this patch protects
+ against any future internal changes or external tool attachment.
+
+--- a/v8/src/inspector/v8-runtime-agent-impl.cc
++++ b/v8/src/inspector/v8-runtime-agent-impl.cc
+@@ -30,6 +30,7 @@
+
+ #include "v8/src/inspector/v8-runtime-agent-impl.h"
+
++#include "base/command_line.h"
+ #include "include/v8-container.h"
+ #include "include/v8-context.h"
+ #include "include/v8-microtask-queue.h"
+@@ -700,6 +701,14 @@ Response V8RuntimeAgentImpl::enable() {
+ }
+
+ Response V8RuntimeAgentImpl::enable(bool return_by_value) {
++  // ABP stealth: when fingerprint mode is active, neuter Runtime.enable
++  // to prevent the console.debug() detection vector. We still allow
++  // Runtime.evaluate to work (it does not require enable()).
++  if (base::CommandLine::ForCurrentProcess()->HasSwitch("abp-fingerprint")) {
++    m_enabled = false;
++    return Response::Success();
++  }
++
+   if (m_enabled)
+     return Response::Success();
+

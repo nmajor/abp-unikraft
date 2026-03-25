@@ -1,0 +1,31 @@
+Description: Propagate ABP stealth command-line switches from the browser
+ process to renderer processes. Without this, renderer-side patches cannot
+ read the --abp-fingerprint flags.
+
+--- a/content/browser/renderer_host/render_process_host_impl.cc
++++ b/content/browser/renderer_host/render_process_host_impl.cc
+@@ -68,6 +68,7 @@
+ #include "base/strings/stringprintf.h"
+ #include "base/system/sys_info.h"
+ #include "base/threading/thread.h"
++#include "chrome/browser/abp/stealth/abp_stealth_switches.h"
+
+ namespace content {
+
+@@ -220,6 +221,16 @@ void RenderProcessHostImpl::PropagateBrowserCommandLineToRenderer(
+     switches::kEnableGpuRasterization,
+   };
+
++  // ABP stealth switches: propagate to renderer so fingerprint spoofing works.
++  static const char* const kAbpStealthSwitches[] = {
++      abp::stealth::switches::kAbpFingerprint,
++      abp::stealth::switches::kAbpFingerprintPlatform,
++      abp::stealth::switches::kAbpFingerprintGpuVendor,
++      abp::stealth::switches::kAbpFingerprintGpuRenderer,
++      abp::stealth::switches::kAbpFingerprintHardwareConcurrency,
++      abp::stealth::switches::kAbpTimezone,
++  };
++
+   command_line->CopySwitchesFrom(browser_command_line, kSwitchNames);
++  command_line->CopySwitchesFrom(browser_command_line, kAbpStealthSwitches);
+ }
