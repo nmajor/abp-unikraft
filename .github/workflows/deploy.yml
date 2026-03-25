@@ -32,6 +32,7 @@ jobs:
             --scale-to-zero idle \
             --scale-to-zero-stateful \
             --scale-to-zero-cooldown 5s \
+            --compress \
             -p 443:15678 \
             -M 4096 \
             --no-prompt \
