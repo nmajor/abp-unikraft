@@ -39,6 +39,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libnss3 libnspr4 \
     libfontconfig1 libfreetype6 fonts-liberation \
     libasound2 libdbus-1-3 libcups2 \
+    socat \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/* /var/cache/apt/* \
     && rm -rf /usr/share/doc /usr/share/man /usr/share/info /usr/share/lintian \
