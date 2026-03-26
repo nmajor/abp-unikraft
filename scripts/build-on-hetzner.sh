@@ -99,6 +99,10 @@ if [ ! -d "depot_tools" ]; then
 fi
 export PATH="${BUILD_DIR}/depot_tools:${PATH}"
 
+# Ensure depot_tools is bootstrapped (downloads gn, ninja, python, etc.)
+echo "  Bootstrapping depot_tools..."
+gclient --version || true
+
 # ABP source
 if [ ! -d "src/chrome/browser/abp" ]; then
     cat > .gclient << 'GCLIENT'
@@ -134,32 +138,16 @@ SRC_DIR="${BUILD_DIR}/src"
 # Step 5: Copy stealth files + apply patches
 # -------------------------------------------------------------------
 echo ""
-echo "==> [5/8] Applying stealth patches..."
+echo "==> [5/8] Applying stealth edits..."
 
+# Copy stealth source files.
 STEALTH_DEST="${SRC_DIR}/chrome/browser/abp/stealth"
 mkdir -p "${STEALTH_DEST}"
 cp -v "${PATCH_REPO}/src/chrome/browser/abp/stealth/"* "${STEALTH_DEST}/"
 
-cd "${SRC_DIR}"
-APPLIED=0
-SKIPPED=0
-while IFS= read -r patch_name; do
-    [[ -z "$patch_name" || "$patch_name" =~ ^# ]] && continue
-    PATCH_FILE="${PATCH_REPO}/patches/${patch_name}"
-    [ ! -f "${PATCH_FILE}" ] && continue
-    echo -n "  ${patch_name}... "
-    if git apply --check "${PATCH_FILE}" 2>/dev/null; then
-        git apply "${PATCH_FILE}" && echo "applied" || echo "failed"
-        APPLIED=$((APPLIED + 1))
-    elif git apply --check --reverse "${PATCH_FILE}" 2>/dev/null; then
-        echo "already applied"
-        SKIPPED=$((SKIPPED + 1))
-    else
-        echo "NEEDS MANUAL ADAPTATION"
-        SKIPPED=$((SKIPPED + 1))
-    fi
-done < "${PATCH_REPO}/patches/series"
-echo "  Applied: ${APPLIED}, Skipped/Manual: ${SKIPPED}"
+# Apply source edits (sed/python based — more robust than git apply).
+chmod +x "${PATCH_REPO}/scripts/apply-stealth-edits.sh"
+bash "${PATCH_REPO}/scripts/apply-stealth-edits.sh" "${SRC_DIR}"
 
 # -------------------------------------------------------------------
 # Step 6: Configure + Build
