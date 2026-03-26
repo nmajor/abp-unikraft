@@ -181,51 +181,79 @@ else
 fi
 
 # ===================================================================
-# Edit 3: User-Agent — remove HeadlessChrome
+# Edit 3: User-Agent — remove "Headless" from product string
 # ===================================================================
-UA_FILE="components/embedder_support/user_agent_utils.cc"
-if [ -f "${SRC}/${UA_FILE}" ]; then
+# The UA string "HeadlessChrome/146.0.0.0" comes from the product name
+# set when headless mode is active. We need to find where "Headless" is
+# prepended to the product name and remove it. We also search multiple
+# files since different Chromium versions put this in different places.
+echo -n "  user-agent... "
+UA_FIXED=0
+for UA_FILE in \
+    "content/common/user_agent.cc" \
+    "components/embedder_support/user_agent_utils.cc" \
+    "headless/lib/browser/headless_content_browser_client.cc" \
+    "chrome/common/chrome_content_client.cc" \
+    "content/shell/common/shell_content_client.cc"; do
+
+    [ ! -f "${SRC}/${UA_FILE}" ] && continue
+
     python3 << PYEOF
+import re
+
 filepath = "${SRC}/${UA_FILE}"
 with open(filepath, 'r') as f:
     content = f.read()
 
-if 'ABP stealth' in content:
-    print("  SKIP user-agent — already applied")
-else:
-    if '#include "base/command_line.h"' not in content:
-        idx = content.find('#include')
-        endline = content.find('\n', idx) + 1
-        content = content[:endline] + '#include "base/command_line.h"\n' + content[endline:]
+modified = False
 
-    # Find BuildUserAgentFromProduct or GetUserAgent and inject platform override
-    for func in ['BuildOSCpuInfoFromOSVersionAndCpuType', 'GetOSType', 'GetPlatformForUAString']:
-        if func in content:
-            idx = content.find(func)
-            brace = content.find('{', idx)
-            if brace > 0:
-                inject = """
-  // ABP stealth: override OS info in UA string.
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch("abp-fingerprint")) {
-    std::string platform = base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII("abp-fingerprint-platform");
-    if (platform == "windows") return "Windows NT 10.0; Win64; x64";
-    if (platform == "macos") return "Macintosh; Intel Mac OS X 10_15_7";
-  }
-"""
-                content = content[:brace+1] + inject + content[brace+1:]
-                print(f"  OK   user-agent — injected at {func}")
-                break
-    else:
-        print("  SKIP user-agent — no suitable function found")
+# Strategy 1: Replace literal "HeadlessChrome" with "Chrome"
+if 'HeadlessChrome' in content:
+    content = content.replace('HeadlessChrome', 'Chrome')
+    modified = True
+    print(f"    Replaced HeadlessChrome in ${UA_FILE}")
 
+# Strategy 2: Replace "Headless" + product concatenation patterns
+# e.g., "Headless" + product or "Headless" being prepended
+for pattern in ['"Headless"', "'Headless'", 'kHeadless']:
+    if pattern in content and 'ABP stealth' not in content:
+        # Comment out or replace the headless prefix
+        content = content.replace(pattern, '""  // ABP stealth: removed Headless prefix')
+        modified = True
+        print(f"    Removed headless prefix in ${UA_FILE}")
+        break
+
+if modified:
     with open(filepath, 'w') as f:
         f.write(content)
 PYEOF
-    APPLIED=$((APPLIED + 1))
-else
-    echo "  SKIP user-agent — file not found"
-    SKIPPED=$((SKIPPED + 1))
-fi
+    UA_FIXED=$((UA_FIXED + 1))
+done
+
+# Also do a brute-force search across the whole source for "HeadlessChrome"
+grep -rl "HeadlessChrome" "${SRC}/components/" "${SRC}/content/" "${SRC}/headless/" "${SRC}/chrome/" 2>/dev/null | while read -r f; do
+    sed -i 's/HeadlessChrome/Chrome/g' "$f" 2>/dev/null && echo "    Fixed HeadlessChrome in $(basename $f)"
+done
+
+# Also search for the headless product name construction
+grep -rl '"Headless"' "${SRC}/headless/" "${SRC}/content/" 2>/dev/null | head -5 | while read -r f; do
+    python3 << PYEOF2
+filepath = "$f"
+with open(filepath, 'r') as fh:
+    content = fh.read()
+if 'ABP stealth' not in content and '"Headless"' in content:
+    # Replace "Headless" string used in product name with empty
+    import re
+    content = re.sub(r'(product\s*=\s*)"Headless"\s*\+', r'\1""  /* ABP stealth */ +', content)
+    content = re.sub(r'"Headless"\s*\+\s*', '/* ABP stealth removed Headless */ ', content)
+    with open(filepath, 'w') as fh:
+        fh.write(content)
+    print(f"    Patched headless product in $(basename $f)")
+PYEOF2
+done
+
+echo "OK (searched and replaced across source tree)"
+APPLIED=$((APPLIED + 1))
 
 # ===================================================================
 # Edit 4: window.outerWidth/outerHeight — realistic values
@@ -328,18 +356,108 @@ else
     SKIPPED=$((SKIPPED + 1))
 fi
 
+# ===================================================================
+# Edit 6: WebGL vendor/renderer spoofing
+# ===================================================================
+WEBGL_FILE="third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc"
+if [ -f "${SRC}/${WEBGL_FILE}" ]; then
+    python3 << PYEOF
+filepath = "${SRC}/${WEBGL_FILE}"
+with open(filepath, 'r') as f:
+    content = f.read()
+
+if 'ABP stealth' in content:
+    print("  SKIP webgl spoofing — already applied")
+else:
+    # Add include
+    if '#include "base/command_line.h"' not in content:
+        idx = content.find('#include')
+        endline = content.find('\n', idx) + 1
+        content = content[:endline] + '#include "base/command_line.h"\n' + content[endline:]
+
+    # Find where UNMASKED_VENDOR_WEBGL is handled
+    # Look for the GL_VENDOR getString call near kUnmaskedVendorWebgl
+    vendor_marker = 'UNMASKED_VENDOR_WEBGL'
+    renderer_marker = 'UNMASKED_RENDERER_WEBGL'
+
+    if vendor_marker in content:
+        # Find the case/if block for vendor
+        idx = content.find(vendor_marker)
+        # Find the next GetString(GL_VENDOR) or getString call after it
+        get_str = content.find('GetString', idx)
+        if get_str > 0:
+            # Find the line start before GetString
+            line_start = content.rfind('\n', 0, get_str) + 1
+            inject = """        // ABP stealth: spoof WebGL vendor.
+        if (base::CommandLine::ForCurrentProcess()->HasSwitch("abp-fingerprint")) {
+          return WebGLAny(script_state, String("Google Inc. (NVIDIA)"));
+        }
+"""
+            content = content[:line_start] + inject + content[line_start:]
+            print("  OK   webgl vendor spoofed")
+
+    # Re-find renderer marker (content shifted after vendor inject)
+    if renderer_marker in content:
+        idx = content.find(renderer_marker)
+        get_str = content.find('GetString', idx)
+        if get_str > 0:
+            line_start = content.rfind('\n', 0, get_str) + 1
+            inject = """        // ABP stealth: spoof WebGL renderer.
+        if (base::CommandLine::ForCurrentProcess()->HasSwitch("abp-fingerprint")) {
+          return WebGLAny(script_state, String("ANGLE (NVIDIA, NVIDIA GeForce RTX 3070 Direct3D11 vs_5_0 ps_5_0, D3D11)"));
+        }
+"""
+            content = content[:line_start] + inject + content[line_start:]
+            print("  OK   webgl renderer spoofed")
+
+    with open(filepath, 'w') as f:
+        f.write(content)
+PYEOF
+    APPLIED=$((APPLIED + 1))
+else
+    echo "  SKIP webgl spoofing — file not found"
+    SKIPPED=$((SKIPPED + 1))
+fi
+
+# ===================================================================
+# Edit 7: navigator.platform — match spoofed platform
+# ===================================================================
+NAVIGATOR_FILE="third_party/blink/renderer/core/frame/navigator.cc"
+if [ -f "${SRC}/${NAVIGATOR_FILE}" ]; then
+    python3 << PYEOF
+filepath = "${SRC}/${NAVIGATOR_FILE}"
+with open(filepath, 'r') as f:
+    content = f.read()
+
+# Only apply if not already done (check for platform spoof specifically)
+if 'ABP stealth: spoof platform' in content:
+    print("  SKIP navigator.platform — already applied")
+else:
+    for pat in ['Navigator::platform()', 'NavigatorID::platform(']:
+        if pat in content:
+            idx = content.find(pat)
+            brace = content.find('{', idx)
+            if brace > 0:
+                inject = """
+  // ABP stealth: spoof platform to match claimed OS.
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch("abp-fingerprint")) {
+    std::string plat = base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII("abp-fingerprint-platform");
+    if (plat == "windows") return "Win32";
+    if (plat == "macos") return "MacIntel";
+  }
+"""
+                content = content[:brace+1] + inject + content[brace+1:]
+                print("  OK   navigator.platform spoofed")
+                break
+
+    with open(filepath, 'w') as f:
+        f.write(content)
+PYEOF
+    APPLIED=$((APPLIED + 1))
+else
+    echo "  SKIP navigator.platform — file not found"
+    SKIPPED=$((SKIPPED + 1))
+fi
+
 echo ""
 echo "==> Stealth edits complete. Applied: ${APPLIED}, Skipped: ${SKIPPED}"
-echo ""
-echo "NOTE: The following advanced patches require more complex changes"
-echo "and should be applied manually after verifying the build works:"
-echo "  - WebGL vendor/renderer spoofing (006)"
-echo "  - Canvas/WebGL pixel noise (007-009)"
-echo "  - Audio fingerprint noise (010)"
-echo "  - Font enumeration filtering (011)"
-echo "  - Client rects / measureText noise (013-014)"
-echo "  - Timezone override (015)"
-echo "  - Runtime.enable neutralization (003)"
-echo ""
-echo "These 5 core edits (webdriver, plugins, UA, window size, flags)"
-echo "cover the most impactful detection vectors for an initial build."

@@ -30,7 +30,6 @@ exec "${ABP_BINARY}" \
     --abp-timezone="${ABP_TIMEZONE}" \
     --headless=new \
     --no-sandbox \
-    --disable-gpu \
     --disable-dev-shm-usage \
     --disable-blink-features=AutomationControlled \
     --use-mock-keychain \
