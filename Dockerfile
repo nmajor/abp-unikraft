@@ -3,8 +3,9 @@ FROM debian:bookworm-slim AS downloader
 RUN apt-get update && apt-get install -y --no-install-recommends wget ca-certificates binutils \
     && rm -rf /var/lib/apt/lists/*
 
-ARG ABP_VERSION=0.1.9
-RUN wget -q "https://github.com/theredsix/agent-browser-protocol/releases/download/v${ABP_VERSION}/abp-${ABP_VERSION}-linux-x64.tar.gz" \
+# Download our stealth-patched ABP binary from GitHub Releases.
+ARG ABP_STEALTH_VERSION=stealth-v0.1.0
+RUN wget -q "https://github.com/nmajor/abp-unikraft/releases/download/${ABP_STEALTH_VERSION}/abp-stealth-linux-x64.tar.gz" \
     -O /tmp/abp.tar.gz \
     && mkdir -p /opt/abp \
     && tar -xzf /tmp/abp.tar.gz -C /opt/abp \
@@ -19,7 +20,7 @@ RUN wget -q "https://github.com/theredsix/agent-browser-protocol/releases/downlo
     && rm -f /opt/abp/abp-chrome/chrome_management_service \
     && rm -f /opt/abp/abp-chrome/chrome_sandbox \
     # Keep only en-US locale
-    && find /opt/abp/abp-chrome/locales -type f ! -name 'en-US.pak' -delete \
+    && find /opt/abp/abp-chrome/locales -type f ! -name 'en-US.pak' -delete 2>/dev/null || true \
     # Strip shared libraries
     && find /opt/abp/abp-chrome -name '*.so' -exec strip --strip-unneeded {} + 2>/dev/null || true \
     && find /opt/abp/abp-chrome -name '*.so.*' -exec strip --strip-unneeded {} + 2>/dev/null || true
