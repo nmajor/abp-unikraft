@@ -181,6 +181,7 @@ enable_nacl = false
 blink_symbol_level = 0
 GNARGS
 
+cd "${SRC_DIR}"
 gn gen "${RELEASE_DIR}"
 
 echo "  Building with ${NPROC} cores..."
