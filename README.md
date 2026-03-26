@@ -223,16 +223,113 @@ Our patches target stable web standard APIs (WebGL, Canvas, Navigator) that rare
 - **No GPU** — Running in a unikernel with no GPU. SwiftShader provides software rendering.
 - **4GB memory limit** — KraftCloud free tier cap. Heavy pages may be constrained.
 
-## Scraping Test Results
+## Verified Test Results
 
-| Site | Status | Notes |
-|---|---|---|
-| Wikipedia | Works | Full article extraction |
-| Hacker News | Works | Headlines, links, metadata |
-| GitHub Trending | Works | Repo names, stars |
-| Reuters | Works | News headlines, dates |
-| Zillow | Works | Full property data (Zestimate, beds/baths, sqft) — passes PerimeterX |
-| Amazon | Partial | Product info works. Price hidden due to geo-restriction (Frankfurt IP), not bot detection |
-| Reddit (old) | Works | Page loads, needs selector tuning |
-| Google Maps | Blocked | Datacenter IP, not fingerprint. Needs residential proxy |
-| bot.sannysoft.com | **All pass** | Every detection test passes except h264 codec (expected for Chromium) |
+All tests performed on the live KraftCloud deployment (fra metro, 4GB, stealth-v0.1.0 binary).
+
+### Scale-to-Zero Performance (5 trials)
+
+The instance was confirmed in `standby` state before each request.
+Start count incremented on every request, confirming full power-down/resume cycle.
+
+| Trial | Unikraft Boot | Total Round-Trip | Instance State Before |
+|---|---|---|---|
+| 1 | 9.36ms | 205ms | standby |
+| 2 | 9.51ms | 194ms | standby |
+| 3 | 9.57ms | 195ms | standby |
+| 4 | 10.17ms | 193ms | standby |
+| 5 | 10.32ms | 197ms | standby |
+
+Round-trip includes network latency to Frankfurt + TLS handshake + Unikraft wake + ABP response.
+
+### Agent Action Cycle (wake from standby → action → sleep between each)
+
+Each action was sent after waiting for the instance to scale to zero (confirmed `standby` state).
+
+| Action | Total (wake+action) | ABP Internal Profiling | Unikraft Boot |
+|---|---|---|---|
+| Get tabs | 201ms | n/a | 8.60ms |
+| Navigate to example.com | 960ms | 716ms | 9.85ms |
+| Execute JavaScript | 899ms | 639ms | 9.98ms |
+| Take screenshot | 833ms | 588ms | 9.69ms |
+| Navigate to httpbin.org | 3,226ms | 2,970ms (network fetch) | 9.41ms |
+
+### State Persistence Across Scale-to-Zero
+
+Verified after multiple standby/resume cycles:
+- Browser remembers last URL (`https://httpbin.org/headers`)
+- Virtual time stays frozen (`paused: True`, `base_ticks_ms: 60837.058`)
+- Tab IDs survive scale-to-zero (same ID across cycles)
+- Start count reached 17 across all tests, confirming each request triggered a full resume
+
+### Bot Detection Test (bot.sannysoft.com)
+
+Full results from the stealth-v0.1.0 binary:
+
+| Test | Result |
+|---|---|
+| User Agent | `Chrome/146.0.0.0` (no "Headless") — **passed** |
+| WebDriver (New) | `missing` — **passed** |
+| WebDriver Advanced | **passed** |
+| Chrome Object | `present` — **passed** |
+| Permissions | `prompt` — **passed** |
+| Plugins Length | `5` — **passed** |
+| Plugins Type | `PluginArray` — **passed** |
+| Languages | `en-US` — **passed** |
+| Broken Image | `16x16` — **passed** |
+| PHANTOM_UA | **ok** |
+| PHANTOM_PROPERTIES | **ok** |
+| PHANTOM_ETSL | **ok** |
+| PHANTOM_LANGUAGE | **ok** |
+| PHANTOM_WEBSOCKET | **ok** |
+| MQ_SCREEN | **ok** |
+| PHANTOM_OVERFLOW | **ok** |
+| PHANTOM_WINDOW_HEIGHT | **ok** |
+| HEADCHR_UA | **ok** |
+| HEADCHR_CHROME_OBJ | **ok** |
+| HEADCHR_PERMISSIONS | **ok** |
+| HEADCHR_PLUGINS | **ok** |
+| HEADCHR_IFRAME | **ok** |
+| CHR_DEBUG_TOOLS | **ok** |
+| SELENIUM_DRIVER | **ok** |
+| CHR_BATTERY | **ok** |
+| CHR_MEMORY | **ok** |
+| TRANSPARENT_PIXEL | **ok** |
+| SEQUENTUM | **ok** |
+| VIDEO_CODECS | WARN (h264 — expected, Chromium lacks proprietary codecs) |
+
+### Stealth Signal Verification
+
+Measured on `about:blank` via ABP's `/tabs/{id}/execute` endpoint:
+
+| Signal | Value | Expected (real Chrome) | Match? |
+|---|---|---|---|
+| `navigator.webdriver` | `false` | `false` | Yes |
+| `navigator.userAgent` | `Mozilla/5.0 (X11; Linux x86_64) ... Chrome/146.0.0.0 Safari/537.36` | No "Headless" | Yes |
+| `navigator.plugins.length` | `5` | `5` | Yes |
+| `typeof window.chrome` | `object` | `object` | Yes |
+| `window.chrome` keys | `loadTimes,csi,app` | `loadTimes,csi,app` | Yes |
+| `navigator.languages` | `["en-US"]` | `["en-US"]` | Yes |
+| `window.outerWidth x outerHeight` | `1280x800` | nonzero | Yes |
+| `navigator.platform` | `Linux x86_64` | `Win32` (if spoofing Windows) | No* |
+| WebGL vendor | `Google Inc. (Google)` | Real GPU vendor | No* |
+| WebGL renderer | `SwiftShader` | Real GPU name | No* |
+
+*These patches are written but need insertion point adjustment for ABP's Chromium version. Fixable on next build.
+
+### Scraping Tests
+
+| Site | Anti-Bot | Status | Data Extracted |
+|---|---|---|---|
+| **Wikipedia** | None | **Works** | Full article content — Cascais municipality history, demographics, geography (3000+ chars) |
+| **Hacker News** | None | **Works** | Top 10 headlines with links extracted via `.titleline a` selector |
+| **GitHub Trending** | Rate limiting | **Works** | 9 trending repos with names (e.g., `bytedance/deer-flow`, `twentyhq/twenty`) |
+| **Reuters** | Moderate | **Works** | 14 tech news headlines with dates extracted from article elements |
+| **Zillow** | PerimeterX/HUMAN | **Works** | Full property data: Zestimate ($143,500), beds (--), baths (1), sqft (1,152), year built (1959), lot size, estimated rent ($1,647/mo) |
+| **Amazon** | Advanced | **Partial** | Product title, 4.6-star rating, full description. Price not shown — geo-restriction (Frankfurt IP = "cannot ship to Germany"), not bot detection |
+| **Reddit** (old.reddit) | Moderate | **Works** | Page loads with full subreddit listing, navigation, sidebar. Post selectors need tuning for old.reddit DOM structure |
+| **Google Maps** | IP-based | **Blocked** | Consent wall with no interactive buttons — Google serves degraded page to datacenter IPs regardless of browser fingerprint |
+| **DuckDuckGo** | IP-based | **Blocked** | Bot CAPTCHA — datacenter IP detection |
+| **Bing** | IP-based | **Blocked** | CAPTCHA after initial query — datacenter IP |
+| **bot.sannysoft.com** | Detection test | **All pass** | Every test passes (see table above) |
+| **TimeOut Lisbon** | Cloudflare | **Partial** | Page loaded but specific bakery URL was 404. General Lisbon food/restaurant content extracted successfully |
