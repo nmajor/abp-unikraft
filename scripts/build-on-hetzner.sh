@@ -99,9 +99,21 @@ if [ ! -d "depot_tools" ]; then
 fi
 export PATH="${BUILD_DIR}/depot_tools:${PATH}"
 
-# Ensure depot_tools is bootstrapped (downloads gn, ninja, python, etc.)
-echo "  Bootstrapping depot_tools..."
-gclient --version || true
+# depot_tools refuses to bootstrap as root ("Running depot tools as root is sad").
+# The ensure_bootstrap script does the same work WITHOUT the root check.
+# It downloads the CIPD-managed Python 3, gn, ninja, etc.
+export DEPOT_TOOLS_UPDATE=0
+echo "  Bootstrapping depot_tools (bypassing root check)..."
+cd "${BUILD_DIR}/depot_tools"
+./ensure_bootstrap
+cd "${BUILD_DIR}"
+
+# Verify bootstrap worked
+if [ ! -f "${BUILD_DIR}/depot_tools/python3_bin_reldir.txt" ]; then
+    echo "ERROR: depot_tools bootstrap failed. python3_bin_reldir.txt not created."
+    exit 1
+fi
+echo "  depot_tools bootstrapped OK."
 
 # ABP source
 if [ ! -d "src/chrome/browser/abp" ]; then
