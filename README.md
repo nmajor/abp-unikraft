@@ -179,6 +179,47 @@ curl -s -X POST "$ABP/api/v1/tabs/{id}/execute" \
 # Take screenshot
 curl -s -X POST "$ABP/api/v1/tabs/{id}/screenshot" \
     -H "Content-Type: application/json" -d '{}'
+
+# Get page text (full body or CSS selector)
+curl -s -X POST "$ABP/api/v1/tabs/{id}/text" \
+    -H "Content-Type: application/json" -d '{}'
+curl -s -X POST "$ABP/api/v1/tabs/{id}/text" \
+    -H "Content-Type: application/json" \
+    -d '{"selector": "#firstHeading"}'
+
+# Scroll (requires x/y position + scrolls array with delta_px and direction)
+curl -s -X POST "$ABP/api/v1/tabs/{id}/scroll" \
+    -H "Content-Type: application/json" \
+    -d '{"x":640,"y":400,"scrolls":[{"delta_px":300,"direction":"y"}]}'
+
+# Click at coordinates
+curl -s -X POST "$ABP/api/v1/tabs/{id}/click" \
+    -H "Content-Type: application/json" \
+    -d '{"x": 300, "y": 200}'
+
+# Type text (click input first to focus)
+curl -s -X POST "$ABP/api/v1/tabs/{id}/type" \
+    -H "Content-Type: application/json" \
+    -d '{"text": "hello world"}'
+
+# Keyboard press
+curl -s -X POST "$ABP/api/v1/tabs/{id}/keyboard/press" \
+    -H "Content-Type: application/json" \
+    -d '{"key": "Enter"}'
+
+# Back / Forward / Reload
+curl -s -X POST "$ABP/api/v1/tabs/{id}/back" -H "Content-Type: application/json" -d '{}'
+curl -s -X POST "$ABP/api/v1/tabs/{id}/forward" -H "Content-Type: application/json" -d '{}'
+curl -s -X POST "$ABP/api/v1/tabs/{id}/reload" -H "Content-Type: application/json" -d '{}'
+
+# Wait (pause for specified ms)
+curl -s -X POST "$ABP/api/v1/tabs/{id}/wait" \
+    -H "Content-Type: application/json" -d '{"ms": 1000}'
+
+# Create / Close tabs
+curl -s -X POST "$ABP/api/v1/tabs" \
+    -H "Content-Type: application/json" -d '{"url":"about:blank"}'
+curl -s -X DELETE "$ABP/api/v1/tabs/{id}"
 ```
 
 Full API docs: https://github.com/theredsix/agent-browser-protocol
