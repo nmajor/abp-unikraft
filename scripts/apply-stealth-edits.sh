@@ -233,7 +233,7 @@ done
 # Also do a brute-force search across the whole source for "HeadlessChrome"
 grep -rl "HeadlessChrome" "${SRC}/components/" "${SRC}/content/" "${SRC}/headless/" "${SRC}/chrome/" 2>/dev/null | while read -r f; do
     sed -i 's/HeadlessChrome/Chrome/g' "$f" 2>/dev/null && echo "    Fixed HeadlessChrome in $(basename $f)"
-done
+done || true
 
 # Also search for the headless product name construction
 grep -rl '"Headless"' "${SRC}/headless/" "${SRC}/content/" 2>/dev/null | head -5 | while read -r f; do
@@ -250,7 +250,7 @@ if 'ABP stealth' not in content and '"Headless"' in content:
         fh.write(content)
     print(f"    Patched headless product in $(basename $f)")
 PYEOF2
-done
+done || true
 
 echo "OK (searched and replaced across source tree)"
 APPLIED=$((APPLIED + 1))
