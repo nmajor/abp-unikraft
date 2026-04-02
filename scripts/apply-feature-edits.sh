@@ -484,6 +484,7 @@ else:
 impl_code = '''
 // ABP feature: full page screenshot implementation.
 // CdpCallback signature: void(bool success, const std::string& json_response)
+namespace abp {
 void AbpController::ScreenshotFull(
     const std::string& tab_id,
     const base::Value::Dict& params,
@@ -603,6 +604,7 @@ void AbpController::OnFullPageCaptureReady(
   resp.Set("screenshot", std::move(screenshot));
   SendJson(200, base::Value(std::move(resp)), std::move(callback));
 }
+}  // namespace abp
 '''
 
 # Append implementation at end of file (no wrapping namespace to worry about).
