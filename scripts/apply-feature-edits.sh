@@ -401,14 +401,15 @@ for anchor in ['void Screenshot(', 'Screenshot(const std::string& tab_id']:
                       const base::Value::Dict& params,
                       ResponseCallback callback);
   void OnFullPageDimensionsReady(const std::string& tab_id,
-                                 base::Value::Dict params,
                                  int quality,
                                  ResponseCallback callback,
-                                 base::Value::Dict cdp_result);
+                                 bool success,
+                                 const std::string& response);
   void OnFullPageCaptureReady(int width,
                               int height,
                               ResponseCallback callback,
-                              base::Value::Dict cdp_result);
+                              bool success,
+                              const std::string& response);
 '''
         content = content[:eol+1] + inject + content[eol+1:]
 
@@ -451,10 +452,13 @@ modified = False
 #   }
 # We need to check for a sub-path "full" when segments.size() > 5.
 
-# Find the screenshot routing block
-for anchor in ['action == "screenshot"', "action == 'screenshot'"]:
+# Find the screenshot routing block.
+# Use a more specific anchor to avoid matching comments or other contexts.
+# The route is: } else if (action == "screenshot") {
+for anchor in ['(action == "screenshot")', 'action == "screenshot"']:
     if anchor in content:
-        idx = content.find(anchor)
+        # Find the LAST occurrence — route handlers are near the end of HandleRequest
+        idx = content.rfind(anchor)
         # Find the opening brace of this if block
         brace = content.find('{', idx)
         if brace > 0:
@@ -479,11 +483,7 @@ else:
 
 impl_code = '''
 // ABP feature: full page screenshot implementation.
-// Captures the entire scrollable page using CDP Page.captureScreenshot
-// with captureBeyondViewport: true. This is the only place we use the
-// CDP screenshot command (the viewport screenshot uses GrabViewSnapshot
-// for reliability). Full page capture requires CDP since the compositor
-// only has viewport-sized buffers.
+// CdpCallback signature: void(bool success, const std::string& json_response)
 void AbpController::ScreenshotFull(
     const std::string& tab_id,
     const base::Value::Dict& params,
@@ -496,15 +496,13 @@ void AbpController::ScreenshotFull(
 
   int quality = params.FindInt("quality").value_or(80);
 
-  // Step 1: Get the full page dimensions via JS evaluation.
   base::Value::Dict eval_params;
   eval_params.Set("expression",
       "JSON.stringify({"
-      "w: Math.max(document.documentElement.scrollWidth || 0,"
-      "             document.body ? document.body.scrollWidth : 0, 1),"
-      "h: Math.max(document.documentElement.scrollHeight || 0,"
-      "             document.body ? document.body.scrollHeight : 0, 1)"
-      "})");
+      "w:Math.max(document.documentElement.scrollWidth||0,"
+      "document.body?document.body.scrollWidth:0,1),"
+      "h:Math.max(document.documentElement.scrollHeight||0,"
+      "document.body?document.body.scrollHeight:0,1)})");
   eval_params.Set("returnByValue", true);
 
   auto* cdp = tab_it->second.cdp_client.get();
@@ -512,41 +510,39 @@ void AbpController::ScreenshotFull(
       "Runtime.evaluate", eval_params,
       base::BindOnce(&AbpController::OnFullPageDimensionsReady,
                      weak_factory_.GetWeakPtr(), tab_id,
-                     params.Clone(), quality, std::move(callback)));
+                     quality, std::move(callback)));
 }
 
 void AbpController::OnFullPageDimensionsReady(
     const std::string& tab_id,
-    base::Value::Dict params,
     int quality,
     ResponseCallback callback,
-    base::Value::Dict cdp_result) {
+    bool success,
+    const std::string& response) {
   int width = 1280;
   int height = 800;
 
-  // Parse dimensions from the JS evaluation result.
-  const base::Value::Dict* result_obj = cdp_result.FindDict("result");
-  if (result_obj) {
-    const std::string* value_str = result_obj->FindString("value");
-    if (value_str) {
-      auto parsed = base::JSONReader::Read(*value_str);
-      if (parsed && parsed->is_dict()) {
-        const auto& dims = parsed->GetDict();
-        width = dims.FindInt("w").value_or(1280);
-        height = dims.FindInt("h").value_or(800);
+  if (success) {
+    auto parsed = base::JSONReader::Read(response, base::JSON_PARSE_RFC);
+    if (parsed && parsed->is_dict()) {
+      const auto* result = parsed->GetDict().FindDict("result");
+      if (result) {
+        const std::string* value_str = result->FindString("value");
+        if (value_str) {
+          auto dims_parsed = base::JSONReader::Read(*value_str, base::JSON_PARSE_RFC);
+          if (dims_parsed && dims_parsed->is_dict()) {
+            width = dims_parsed->GetDict().FindInt("w").value_or(1280);
+            height = dims_parsed->GetDict().FindInt("h").value_or(800);
+          }
+        }
       }
     }
   }
 
-  // Cap dimensions to prevent OOM (max ~64 megapixels).
-  const int kMaxWidth = 4096;
-  const int kMaxHeight = 16384;
-  width = std::min(std::max(width, 1), kMaxWidth);
-  height = std::min(std::max(height, 1), kMaxHeight);
-
+  width = std::min(std::max(width, 1), 4096);
+  height = std::min(std::max(height, 1), 16384);
   VLOG(1) << "ABP full page screenshot: " << width << "x" << height;
 
-  // Step 2: Capture using CDP Page.captureScreenshot.
   auto tab_it = tab_states_.find(tab_id);
   if (tab_it == tab_states_.end() || !tab_it->second.cdp_client) {
     SendError(500, "Tab lost during screenshot", std::move(callback));
@@ -557,7 +553,6 @@ void AbpController::OnFullPageDimensionsReady(
   ss_params.Set("format", "webp");
   ss_params.Set("quality", quality);
   ss_params.Set("captureBeyondViewport", true);
-
   base::Value::Dict clip;
   clip.Set("x", 0.0);
   clip.Set("y", 0.0);
@@ -578,24 +573,35 @@ void AbpController::OnFullPageCaptureReady(
     int width,
     int height,
     ResponseCallback callback,
-    base::Value::Dict cdp_result) {
-  const std::string* data = cdp_result.FindString("data");
-  if (!data || data->empty()) {
+    bool success,
+    const std::string& response) {
+  if (!success) {
     SendError(500, "Full page screenshot capture failed", std::move(callback));
     return;
   }
 
+  auto parsed = base::JSONReader::Read(response, base::JSON_PARSE_RFC);
+  std::string data;
+  if (parsed && parsed->is_dict()) {
+    const std::string* d = parsed->GetDict().FindString("data");
+    if (d) data = *d;
+  }
+
+  if (data.empty()) {
+    SendError(500, "Full page screenshot returned no data", std::move(callback));
+    return;
+  }
+
   base::Value::Dict screenshot;
-  screenshot.Set("data", *data);
+  screenshot.Set("data", std::move(data));
   screenshot.Set("format", "webp");
   screenshot.Set("width", width);
   screenshot.Set("height", height);
   screenshot.Set("full_page", true);
 
-  base::Value::Dict response;
-  response.Set("screenshot", std::move(screenshot));
-
-  SendJson(200, base::Value(std::move(response)), std::move(callback));
+  base::Value::Dict resp;
+  resp.Set("screenshot", std::move(screenshot));
+  SendJson(200, base::Value(std::move(resp)), std::move(callback));
 }
 '''
 
