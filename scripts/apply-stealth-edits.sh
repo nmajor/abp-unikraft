@@ -218,7 +218,7 @@ if 'HeadlessChrome' in content:
 for pattern in ['"Headless"', "'Headless'", 'kHeadless']:
     if pattern in content and 'ABP stealth' not in content:
         # Comment out or replace the headless prefix
-        content = content.replace(pattern, '""  // ABP stealth: removed Headless prefix')
+        content = content.replace(pattern, '"" /* ABP stealth: removed Headless prefix */')
         modified = True
         print(f"    Removed headless prefix in ${UA_FILE}")
         break
