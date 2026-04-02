@@ -4,7 +4,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends wget ca-certifi
     && rm -rf /var/lib/apt/lists/*
 
 # Download our stealth-patched ABP binary from GitHub Releases.
-ARG ABP_STEALTH_VERSION=stealth-v0.1.0
+ARG ABP_STEALTH_VERSION=stealth-20260402-131236
 RUN wget -q "https://github.com/nmajor/abp-unikraft/releases/download/${ABP_STEALTH_VERSION}/abp-stealth-linux-x64.tar.gz" \
     -O /tmp/abp.tar.gz \
     && mkdir -p /opt/abp \
