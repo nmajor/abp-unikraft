@@ -25,7 +25,7 @@ set -euo pipefail
 REPO="nmajor/abp-unikraft"
 BRANCH="main"
 BUILD_DIR="/root/build"
-NPROC=$(nproc)
+NPROC=$(nproc 2>/dev/null || grep -c ^processor /proc/cpuinfo 2>/dev/null || echo 4)
 
 echo "============================================================"
 echo "  ABP Stealth Chromium Build"
