@@ -10,10 +10,25 @@ ABP_FINGERPRINT_SEED="${ABP_FINGERPRINT_SEED:-$RANDOM}"
 ABP_FINGERPRINT_PLATFORM="${ABP_FINGERPRINT_PLATFORM:-windows}"
 ABP_TIMEZONE="${ABP_TIMEZONE:-America/New_York}"
 
+# Proxy configuration — set ABP_PROXY_SERVER to route all traffic through a proxy.
+# Examples:
+#   ABP_PROXY_SERVER=socks5://user:pass@gate.soax.com:1080
+#   ABP_PROXY_SERVER=http://user:pass@proxy.example.com:8080
+PROXY_ARGS=""
+if [ -n "${ABP_PROXY_SERVER:-}" ]; then
+    PROXY_ARGS="--proxy-server=${ABP_PROXY_SERVER}"
+    if [ -n "${ABP_PROXY_BYPASS:-}" ]; then
+        PROXY_ARGS="${PROXY_ARGS} --proxy-bypass-list=${ABP_PROXY_BYPASS}"
+    fi
+fi
+
 echo "Starting ABP Stealth on internal port ${ABP_INTERNAL_PORT}..."
 echo "  Fingerprint seed: ${ABP_FINGERPRINT_SEED}"
 echo "  Platform: ${ABP_FINGERPRINT_PLATFORM}"
 echo "  Timezone: ${ABP_TIMEZONE}"
+if [ -n "${ABP_PROXY_SERVER:-}" ]; then
+    echo "  Proxy: ${ABP_PROXY_SERVER}"
+fi
 echo "Starting proxy on 0.0.0.0:${EXTERNAL_PORT} -> 127.0.0.1:${ABP_INTERNAL_PORT}"
 
 # Start socat proxy (ABP binds to 127.0.0.1 only)
@@ -38,4 +53,5 @@ exec "${ABP_BINARY}" \
     --abp-window-size=1280,800 \
     --disable-sync \
     --no-first-run \
-    --lang=en-US
+    --lang=en-US \
+    ${PROXY_ARGS}

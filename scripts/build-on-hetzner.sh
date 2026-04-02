@@ -161,6 +161,10 @@ cp -v "${PATCH_REPO}/src/chrome/browser/abp/stealth/"* "${STEALTH_DEST}/"
 chmod +x "${PATCH_REPO}/scripts/apply-stealth-edits.sh"
 bash "${PATCH_REPO}/scripts/apply-stealth-edits.sh" "${SRC_DIR}"
 
+# Apply feature edits (bandwidth metering + full page screenshot).
+chmod +x "${PATCH_REPO}/scripts/apply-feature-edits.sh"
+bash "${PATCH_REPO}/scripts/apply-feature-edits.sh" "${SRC_DIR}"
+
 # -------------------------------------------------------------------
 # Step 6: Configure + Build
 # -------------------------------------------------------------------

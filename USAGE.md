@@ -76,9 +76,19 @@ POST /api/v1/tabs/{id}/scroll
 
 ### 6. Screenshot
 ```bash
+# Viewport screenshot (fast — uses compositor snapshot)
 POST /api/v1/tabs/{id}/screenshot
 {}
 # → {"screenshot_after": {"data": "<base64>", "format": "webp", "width": 1280, "height": 713}}
+
+# Full page screenshot (captures entire scrollable page)
+POST /api/v1/tabs/{id}/screenshot/full
+{}
+# → {"screenshot": {"data": "<base64>", "format": "webp", "width": 1280, "height": 4200, "full_page": true}}
+
+# Full page with custom quality
+POST /api/v1/tabs/{id}/screenshot/full
+{"quality": 60}
 ```
 
 ### 7. Tabs
@@ -130,6 +140,39 @@ POST /api/v1/tabs/{id}/wait
 
 **Multiple tabs:** You can have multiple tabs open simultaneously. Each tab has independent state and virtual time.
 
+## Bandwidth Metering
+
+Every action response includes bandwidth data in the `network` object, tracking bytes transferred by the page during that action:
+
+```json
+{
+  "result": {...},
+  "network": {
+    "total": 15,
+    "completed": 14,
+    "pending": 1,
+    "bytes_received": 524288,
+    "bytes_sent": 2048,
+    "bytes_total": 526336,
+    "session_bytes_received": 1048576,
+    "session_bytes_sent": 8192
+  },
+  "profiling": {...}
+}
+```
+
+| Field | Description |
+|---|---|
+| `bytes_received` | Bytes received during this action (encoded/wire size) |
+| `bytes_sent` | Estimated bytes sent during this action (headers + body) |
+| `bytes_total` | `bytes_received + bytes_sent` for this action |
+| `session_bytes_received` | Cumulative bytes received since browser start |
+| `session_bytes_sent` | Cumulative bytes sent since browser start |
+
+Per-action counters (`bytes_received`, `bytes_sent`, `bytes_total`) reset before each action. Session counters accumulate across the entire browser lifetime.
+
+**Note:** `bytes_received` uses `encodedDataLength` from CDP Network events, which reflects actual wire bytes (after compression). `bytes_sent` is estimated from request headers and body size — it does not include TLS overhead.
+
 ## Full Endpoint Reference
 
 | Method | Endpoint | Description |
@@ -149,7 +192,8 @@ POST /api/v1/tabs/{id}/wait
 | POST | `/api/v1/tabs/{id}/type` | Type text |
 | POST | `/api/v1/tabs/{id}/keyboard/press` | Key press |
 | POST | `/api/v1/tabs/{id}/scroll` | Scroll page |
-| POST | `/api/v1/tabs/{id}/screenshot` | Capture screenshot |
+| POST | `/api/v1/tabs/{id}/screenshot` | Capture viewport screenshot |
+| POST | `/api/v1/tabs/{id}/screenshot/full` | Capture full page screenshot |
 | POST | `/api/v1/tabs/{id}/execute` | Run JavaScript |
 | POST | `/api/v1/tabs/{id}/text` | Get page text |
 | POST | `/api/v1/tabs/{id}/wait` | Wait N milliseconds |

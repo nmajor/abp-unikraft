@@ -16,3 +16,6 @@
 015-timezone-override.patch
 016-permissions-consistency.patch
 017-remove-automation-flags.patch
+# Feature patches (applied via scripts/apply-feature-edits.sh):
+# 018 - Bandwidth metering: per-action byte counters in AbpNetworkCapture
+# 019 - Full page screenshot: POST /api/v1/tabs/{id}/screenshot/full

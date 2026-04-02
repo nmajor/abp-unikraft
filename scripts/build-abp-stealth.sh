@@ -29,6 +29,10 @@ echo ""
 echo "==> Step 1: Applying stealth patches"
 "${SCRIPT_DIR}/apply-patches.sh" "${CHROMIUM_SRC}"
 
+# Step 1b: Apply feature edits (bandwidth metering + full page screenshot).
+echo "==> Step 1b: Applying feature edits"
+"${SCRIPT_DIR}/apply-feature-edits.sh" "${CHROMIUM_SRC}"
+
 # Step 2: Generate build files.
 echo ""
 echo "==> Step 2: Generating build files (GN)"

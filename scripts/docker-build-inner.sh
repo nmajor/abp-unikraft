@@ -98,6 +98,15 @@ done < "${SERIES_FILE}"
 
 echo "  Applied: ${APPLIED}, Skipped: ${SKIPPED}"
 
+# Apply feature edits (bandwidth metering + full page screenshot).
+# Scripts are mounted at /scripts in the Docker container.
+echo "==> Applying feature edits..."
+if [ -f "/scripts/apply-feature-edits.sh" ]; then
+    bash "/scripts/apply-feature-edits.sh" "${SRC_DIR}"
+else
+    echo "  WARN: apply-feature-edits.sh not found, skipping feature edits"
+fi
+
 # -------------------------------------------------------------------
 # Step 5: Build
 # -------------------------------------------------------------------

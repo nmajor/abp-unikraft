@@ -47,6 +47,10 @@ C++ source-level modifications to Chromium, applied during build. All gated behi
 - Timezone override
 - `Runtime.enable` CDP detection neutralization
 
+**Feature patches (applied via `scripts/apply-feature-edits.sh`):**
+- Bandwidth metering — per-action and per-session byte counters in API responses
+- Full page screenshot — `POST /api/v1/tabs/{id}/screenshot/full` captures entire scrollable page
+
 **Not fixable via patches (infrastructure):**
 - Datacenter IP detection — needs residential proxy
 
@@ -60,6 +64,7 @@ C++ source-level modifications to Chromium, applied during build. All gated behi
 │   └── 000-017-*.patch         # Individual patches with Description headers
 ├── scripts/
 │   ├── apply-stealth-edits.sh  # Python/sed-based source edits (more robust than git apply)
+│   ├── apply-feature-edits.sh  # Bandwidth metering + full page screenshot edits
 │   ├── build-on-hetzner.sh     # One-script build on a rented Hetzner server (~€0.30)
 │   ├── build-local-mac.sh      # Build on macOS (produces macOS binary)
 │   ├── build-linux-via-docker.sh # Build Linux binary via Docker
@@ -231,6 +236,8 @@ Full API docs: https://github.com/theredsix/agent-browser-protocol
 | `ABP_FINGERPRINT_SEED` | random | Deterministic seed for all fingerprint values |
 | `ABP_FINGERPRINT_PLATFORM` | `windows` | Spoofed platform (`windows`, `macos`, `linux`) |
 | `ABP_TIMEZONE` | `America/New_York` | Spoofed timezone (IANA identifier) |
+| `ABP_PROXY_SERVER` | (none) | Proxy URL (e.g. `socks5://user:pass@host:port`). Routes all browser traffic through proxy. |
+| `ABP_PROXY_BYPASS` | (none) | Semicolon-separated list of hosts to bypass proxy (e.g. `localhost;*.internal`) |
 | `ABP_PORT` | `15678` | External API port |
 
 ## Updating When ABP Releases a New Version
