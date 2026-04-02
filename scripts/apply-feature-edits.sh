@@ -61,15 +61,29 @@ if anchor not in content:
             anchor = alt
             break
 
+# Insert ONE block with both accessors and member variables.
+# Use GetPendingCount as anchor — it's definitely inside the class.
+# We include an explicit 'private:' before the members and restore
+# the original access level afterwards so the rest of the class is
+# unaffected.
 if anchor in content:
     idx = content.find(anchor)
-    # Find end of the declaration line (semicolon then newline)
     semi = content.find(';', idx)
     if semi < 0:
         semi = content.find('\n', idx)
     newline = content.find('\n', semi)
 
-    accessor_block = '''
+    # Determine current access level to restore it after our block.
+    # Search backwards from anchor for public:/private:/protected:.
+    chunk = content[:idx]
+    restore = 'public'
+    for kw in ['public:', 'private:', 'protected:']:
+        ki = chunk.rfind(kw)
+        if ki >= 0:
+            restore = kw.rstrip(':')
+            break
+
+    combined_block = '''
   // ABP feature: per-action bandwidth metering.
   int64_t GetBytesReceived() const { return action_bytes_received_; }
   int64_t GetBytesSent() const { return action_bytes_sent_; }
@@ -79,49 +93,21 @@ if anchor in content:
   int64_t GetSessionBytesReceived() const { return session_bytes_received_; }
   int64_t GetSessionBytesSent() const { return session_bytes_sent_; }
   void ResetActionByteCounts();
-'''
-    content = content[:newline+1] + accessor_block + content[newline+1:]
-    modified = True
-    print("  OK   bandwidth meter -- accessor methods")
-else:
-    print("  WARN bandwidth meter -- GetPendingCount anchor not found, trying fallback")
-    # Fallback: insert before the first 'private:' after class declaration
-    priv = content.find('private:', content.find('class AbpNetworkCapture'))
-    if priv > 0:
-        accessor_block = ''' // ABP feature: per-action bandwidth metering.
-  int64_t GetBytesReceived() const { return action_bytes_received_; }
-  int64_t GetBytesSent() const { return action_bytes_sent_; }
-  int64_t GetTotalBytesTransferred() const {
-    return action_bytes_received_ + action_bytes_sent_;
-  }
-  int64_t GetSessionBytesReceived() const { return session_bytes_received_; }
-  int64_t GetSessionBytesSent() const { return session_bytes_sent_; }
-  void ResetActionByteCounts();
 
-'''
-        content = content[:priv] + accessor_block + content[priv:]
-        modified = True
-        print("  OK   bandwidth meter -- accessor methods (fallback)")
-
-# --- Insert member variables near other member vars ---
-# Look for requests_ vector (known member of AbpNetworkCapture)
-for member_anchor in ['requests_;', 'request_index_;', 'capture_types_;']:
-    if member_anchor in content:
-        midx = content.find(member_anchor)
-        mend = content.find('\n', midx)
-        member_block = '''
+ private:
   // ABP feature: bandwidth byte counters.
   int64_t action_bytes_received_ = 0;
   int64_t action_bytes_sent_ = 0;
   int64_t session_bytes_received_ = 0;
   int64_t session_bytes_sent_ = 0;
+
+ ''' + restore + ''':
 '''
-        content = content[:mend+1] + member_block + content[mend+1:]
-        modified = True
-        print("  OK   bandwidth meter -- member variables")
-        break
+    content = content[:newline+1] + combined_block + content[newline+1:]
+    modified = True
+    print("  OK   bandwidth meter -- accessors + members (single block)")
 else:
-    print("  WARN bandwidth meter -- no member anchor found for variables")
+    print("  WARN bandwidth meter -- GetPendingCount anchor not found")
 
 if modified:
     with open(filepath, 'w') as f:
