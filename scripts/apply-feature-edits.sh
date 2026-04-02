@@ -213,8 +213,8 @@ else:
     print("  WARN bandwidth meter -- requestWillBeSent anchor not found")
 
 # --- Add ResetActionByteCounts method ---
-# Insert before the closing of the namespace or at end of file.
-# Find the last closing brace + namespace comment or end of file.
+# The .cc file has NO wrapping namespace — methods are at file scope.
+# Just append the new method at the end of the file. Simple and safe.
 reset_method = '''
 // ABP feature: reset per-action byte counters.
 void AbpNetworkCapture::ResetActionByteCounts() {
@@ -223,26 +223,16 @@ void AbpNetworkCapture::ResetActionByteCounts() {
 }
 '''
 
-# Find a top-level closing brace (at column 0) to insert before.
-# A '}' at column 0 is a method or namespace end, not nested code.
-import re
-# Find all '}' at start of line — these are top-level scope ends
-top_braces = [m.start() for m in re.finditer(r'^}', content, re.MULTILINE)]
-if len(top_braces) >= 2:
-    # Insert before the second-to-last top-level brace (last method end)
-    insert_pos = top_braces[-1]
-    content = content[:insert_pos] + reset_method + '\n' + content[insert_pos:]
-elif len(top_braces) == 1:
-    content = content[:top_braces[0]] + reset_method + '\n' + content[top_braces[0]:]
-else:
-    # Fallback: append to end of file
-    content += reset_method
-    modified = True
-    print("  OK   bandwidth meter -- ResetActionByteCounts method")
+# Append to end of file (after all existing methods).
+content = content.rstrip() + '\n' + reset_method
+modified = True
+print("  OK   bandwidth meter -- ResetActionByteCounts method (appended)")
 
 # --- Also reset action bytes in ClearBuffer ---
-if 'ClearBuffer' in content:
-    idx = content.find('ClearBuffer')
+# Use exact method signature to avoid matching comments or other mentions.
+clear_anchor = 'AbpNetworkCapture::ClearBuffer()'
+if clear_anchor in content:
+    idx = content.find(clear_anchor)
     brace = content.find('{', idx)
     if brace > 0:
         inject = '''
@@ -609,14 +599,10 @@ void AbpController::OnFullPageCaptureReady(
 }
 '''
 
-# Find a good insertion point: before the last '}'
-# or after BinaryScreenshot implementation
-last_brace = content.rfind('}')
-if last_brace > 0:
-    prev_nl = content.rfind('\n', 0, last_brace)
-    content = content[:prev_nl+1] + impl_code + '\n' + content[prev_nl+1:]
-    modified = True
-    print("  OK   full page screenshot -- implementation added")
+# Append implementation at end of file (no wrapping namespace to worry about).
+content = content.rstrip() + '\n' + impl_code
+modified = True
+print("  OK   full page screenshot -- implementation appended")
 
 # --- Add #include for JSONReader if not present ---
 if '#include "base/json/json_reader.h"' not in content:
