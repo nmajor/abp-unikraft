@@ -223,14 +223,20 @@ void AbpNetworkCapture::ResetActionByteCounts() {
 }
 '''
 
-# Try to insert before the last closing brace
-# Find a good insertion point: before the last '}' in the file
-# or after the last method definition
-last_brace = content.rfind('}')
-if last_brace > 0:
-    # Check if there's a namespace closing comment
-    prev_newline = content.rfind('\n', 0, last_brace)
-    content = content[:prev_newline+1] + reset_method + '\n' + content[prev_newline+1:]
+# Find a top-level closing brace (at column 0) to insert before.
+# A '}' at column 0 is a method or namespace end, not nested code.
+import re
+# Find all '}' at start of line — these are top-level scope ends
+top_braces = [m.start() for m in re.finditer(r'^}', content, re.MULTILINE)]
+if len(top_braces) >= 2:
+    # Insert before the second-to-last top-level brace (last method end)
+    insert_pos = top_braces[-1]
+    content = content[:insert_pos] + reset_method + '\n' + content[insert_pos:]
+elif len(top_braces) == 1:
+    content = content[:top_braces[0]] + reset_method + '\n' + content[top_braces[0]:]
+else:
+    # Fallback: append to end of file
+    content += reset_method
     modified = True
     print("  OK   bandwidth meter -- ResetActionByteCounts method")
 
