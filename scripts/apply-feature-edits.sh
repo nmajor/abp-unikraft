@@ -141,11 +141,12 @@ modified = False
 # --- Hook into OnLoadingFinished to accumulate received bytes ---
 # The loadingFinished CDP event includes "encodedDataLength" which is
 # total bytes received over the wire for this request.
-# Look for the OnLoadingFinished handler or "loadingFinished" string.
-for anchor in ['OnLoadingFinished', 'loadingFinished', 'Network.loadingFinished']:
+# IMPORTANT: search for the full method signature to avoid matching
+# the dispatch call inside OnNetworkEvent().
+for anchor in ['AbpNetworkCapture::OnLoadingFinished', 'void AbpNetworkCapture::OnLoadingFinished']:
     if anchor in content:
         idx = content.find(anchor)
-        # Find the opening brace of this handler
+        # Find the opening brace of this method body
         brace = content.find('{', idx)
         if brace > 0:
             inject = '''
@@ -171,7 +172,8 @@ else:
     print("  WARN bandwidth meter -- loadingFinished anchor not found")
 
 # --- Hook into OnRequestWillBeSent to estimate sent bytes ---
-for anchor in ['OnRequestWillBeSent', 'requestWillBeSent']:
+# IMPORTANT: match the full method signature, not the dispatch call.
+for anchor in ['AbpNetworkCapture::OnRequestWillBeSent', 'void AbpNetworkCapture::OnRequestWillBeSent']:
     if anchor in content:
         idx = content.find(anchor)
         brace = content.find('{', idx)
