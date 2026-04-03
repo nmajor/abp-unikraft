@@ -65,4 +65,5 @@ COPY wrapper.sh /wrapper.sh
 RUN chmod +x /wrapper.sh
 
 EXPOSE 15678
+EXPOSE 1080
 CMD ["/wrapper.sh"]

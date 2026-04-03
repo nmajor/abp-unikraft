@@ -1,0 +1,42 @@
+Description: Force pointer/hover media queries to return fine/hover in
+ headless mode. Datadome's interstitial Device Check uses
+ window.matchMedia('(pointer: fine)') to detect headless browsers,
+ which have no pointing device and return (pointer: none).
+ This was the key detection signal identified in Camoufox issue #26.
+
+--- a/third_party/blink/renderer/core/css/media_query_evaluator.cc
++++ b/third_party/blink/renderer/core/css/media_query_evaluator.cc
+@@ -40,6 +40,8 @@
+ #include "third_party/blink/renderer/core/css/media_query_evaluator.h"
+
+ #include <memory>
++#include "base/command_line.h"
++#include "chrome/browser/abp/stealth/abp_stealth_utils.h"
+
+ namespace blink {
+
+@@ -600,6 +602,12 @@ static bool AnyPointerMediaFeatureEval(const MediaQueryExpValue& value,
+                                         MediaValues* media_values) {
+   int available = media_values->GetAvailablePointerTypes();
+
++  // ABP stealth: headless has no pointer device (POINTER_TYPE_NONE).
++  // Force POINTER_TYPE_FINE so matchMedia('(pointer: fine)') returns true.
++  if (abp::stealth::IsStealthEnabled() && available == 0) {
++    available = ui::POINTER_TYPE_FINE;
++  }
++
+   return PointerMediaFeatureEval(value, media_feature, available);
+ }
+
+@@ -620,6 +628,12 @@ static bool AnyHoverMediaFeatureEval(const MediaQueryExpValue& value,
+                                       MediaValues* media_values) {
+   int available = media_values->GetAvailableHoverTypes();
+
++  // ABP stealth: headless has no hover capability (HOVER_TYPE_NONE).
++  // Force HOVER_TYPE_HOVER since a fine pointer implies hover.
++  if (abp::stealth::IsStealthEnabled() && available == 0) {
++    available = ui::HOVER_TYPE_HOVER;
++  }
++
+   return HoverMediaFeatureEval(value, media_feature, available);
+ }

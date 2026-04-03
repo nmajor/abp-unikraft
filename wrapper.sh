@@ -44,6 +44,23 @@ if [ -n "${ABP_PROXY_SERVER:-}" ]; then
     fi
 fi
 
+# Public SOCKS5 proxy for CapSolver to connect through (same Decodo upstream)
+GOST_PUBLIC_PORT="${ABP_GOST_PUBLIC_PORT:-1080}"
+GOST_PUBLIC_USER="${ABP_GOST_PUBLIC_USER:-capsolver}"
+GOST_PUBLIC_PASS="${ABP_GOST_PUBLIC_PASS:-}"
+
+if [ -n "${GOST_PUBLIC_PASS:-}" ] && echo "${ABP_PROXY_SERVER}" | grep -q '@'; then
+    echo "  Starting public SOCKS5 proxy on :${GOST_PUBLIC_PORT} for CapSolver"
+    /usr/local/bin/gost -L "socks5://${GOST_PUBLIC_USER}:${GOST_PUBLIC_PASS}@:${GOST_PUBLIC_PORT}" -F "${ABP_PROXY_SERVER}" &
+    GOST_PUBLIC_PID=$!
+    sleep 1
+    if kill -0 $GOST_PUBLIC_PID 2>/dev/null; then
+        echo "  Public SOCKS5 proxy running (PID ${GOST_PUBLIC_PID})"
+    else
+        echo "  WARNING: Public SOCKS5 proxy failed to start"
+    fi
+fi
+
 echo "Starting ABP Stealth on internal port ${ABP_INTERNAL_PORT}..."
 echo "  Fingerprint seed: ${ABP_FINGERPRINT_SEED}"
 echo "  Platform: ${ABP_FINGERPRINT_PLATFORM}"

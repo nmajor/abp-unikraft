@@ -1,0 +1,62 @@
+Description: Override screen.width/height/availWidth/availHeight to return
+ realistic display dimensions in headless mode. Headless Chrome may return
+ 0 or the viewport size for screen properties, which differs from real
+ browsers where screen dimensions reflect the physical display.
+ Follows the same pattern as 012-window-outer-dimensions.patch.
+
+--- a/third_party/blink/renderer/core/frame/screen.cc
++++ b/third_party/blink/renderer/core/frame/screen.cc
+@@ -30,6 +30,8 @@
+ #include "third_party/blink/renderer/core/frame/screen.h"
+
+ #include "base/numerics/safe_conversions.h"
++#include "base/command_line.h"
++#include "chrome/browser/abp/stealth/abp_stealth_utils.h"
+ #include "third_party/blink/renderer/core/frame/local_dom_window.h"
+ #include "third_party/blink/renderer/core/frame/local_frame.h"
+ #include "third_party/blink/renderer/core/frame/settings.h"
+@@ -50,6 +52,10 @@ int Screen::height() const {
+   if (!DomWindow())
+     return 0;
+
++  // ABP stealth: return realistic display height.
++  if (abp::stealth::IsStealthEnabled())
++    return 1080;
++
+   LocalFrame* frame = DomWindow()->GetFrame();
+@@ -60,6 +66,10 @@ int Screen::width() const {
+   if (!DomWindow())
+     return 0;
+
++  // ABP stealth: return realistic display width.
++  if (abp::stealth::IsStealthEnabled())
++    return 1920;
++
+   LocalFrame* frame = DomWindow()->GetFrame();
+@@ -70,6 +80,10 @@ unsigned Screen::colorDepth() const {
+   if (!DomWindow())
+     return 0;
+
++  // ABP stealth: return standard 24-bit color depth.
++  if (abp::stealth::IsStealthEnabled())
++    return 24;
++
+   return base::saturated_cast<unsigned>(GetScreenInfo().depth);
+@@ -80,6 +94,10 @@ int Screen::availHeight() const {
+   if (!DomWindow())
+     return 0;
+
++  // ABP stealth: return height minus taskbar (40px).
++  if (abp::stealth::IsStealthEnabled())
++    return 1040;
++
+   LocalFrame* frame = DomWindow()->GetFrame();
+@@ -90,6 +108,10 @@ int Screen::availWidth() const {
+   if (!DomWindow())
+     return 0;
+
++  // ABP stealth: return full width (no side panels).
++  if (abp::stealth::IsStealthEnabled())
++    return 1920;
++
+   LocalFrame* frame = DomWindow()->GetFrame();
