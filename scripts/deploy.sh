@@ -17,7 +17,7 @@ kraft cloud deploy \
     --metro "${METRO}" \
     --name "${INSTANCE_NAME}" \
     --scale-to-zero \
-    -p 443:15678 -p 1080:1080 \
+    -p 443:15678/http+tls -p 1080:1080/tls \
     -M "${MEMORY}" \
     .
 

@@ -43,7 +43,7 @@ jobs:
             --scale-to-zero-cooldown 5s \
             --compress \
             --restart on-failure \
-            -p 443:15678 -p 1080:1080 \
+            -p 443:15678/http+tls -p 1080:1080/tls \
             -M 4096 \
             --no-prompt \
             .
