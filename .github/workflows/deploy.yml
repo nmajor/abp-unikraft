@@ -25,30 +25,16 @@ jobs:
         env:
           UKC_TOKEN: ${{ secrets.UKC_TOKEN }}
         run: |
-          # Extract user and token from base64-encoded UKC_TOKEN
           DECODED=$(echo "$UKC_TOKEN" | base64 -d)
           UKC_USER=$(echo "$DECODED" | cut -d: -f1)
           UKC_PASS=$(echo "$DECODED" | cut -d: -f2)
-          # Set up kraft config for both API and registry
           mkdir -p ~/.config/kraftkit
-          cat > ~/.config/kraftkit/config.yaml <<KRAFTEOF
-no_prompt: true
-auth:
-  api.fra0.kraft.cloud:
-    user: "${UKC_USER}"
-    token: "${UKC_PASS}"
-    endpoint: api.fra0.kraft.cloud
-    verify_ssl: true
-  index.unikraft.io:
-    user: "${UKC_USER}"
-    token: "${UKC_PASS}"
-    endpoint: index.unikraft.io
-    verify_ssl: true
-KRAFTEOF
+          printf 'no_prompt: true\nauth:\n  api.fra0.kraft.cloud:\n    user: "%s"\n    token: "%s"\n    endpoint: api.fra0.kraft.cloud\n    verify_ssl: true\n  index.unikraft.io:\n    user: "%s"\n    token: "%s"\n    endpoint: index.unikraft.io\n    verify_ssl: true\n' \
+            "$UKC_USER" "$UKC_PASS" "$UKC_USER" "$UKC_PASS" \
+            > ~/.config/kraftkit/config.yaml
 
       - name: Deploy to KraftCloud
         env:
-          UKC_TOKEN: ${{ secrets.UKC_TOKEN }}
           UKC_METRO: fra0
         run: |
           kraft cloud deploy \
