@@ -14,9 +14,31 @@ ABP_TIMEZONE="${ABP_TIMEZONE:-America/New_York}"
 # Examples:
 #   ABP_PROXY_SERVER=socks5://user:pass@gate.soax.com:1080
 #   ABP_PROXY_SERVER=http://user:pass@proxy.example.com:8080
+#
+# Chrome cannot handle credentials in --proxy-server (ERR_NO_SUPPORTED_PROXIES).
+# When credentials are present, we start a local gost forwarder that handles auth,
+# and point Chrome at the local forwarder instead.
 PROXY_ARGS=""
+GOST_LOCAL_PORT=18080
 if [ -n "${ABP_PROXY_SERVER:-}" ]; then
-    PROXY_ARGS="--proxy-server=${ABP_PROXY_SERVER}"
+    if echo "${ABP_PROXY_SERVER}" | grep -q '@'; then
+        # Authenticated proxy — start local gost forwarder
+        echo "  Proxy has credentials — starting local gost forwarder on :${GOST_LOCAL_PORT}"
+        /usr/local/bin/gost -L "http://:${GOST_LOCAL_PORT}" -F "${ABP_PROXY_SERVER}" &
+        GOST_PID=$!
+        sleep 1
+        # Verify gost started
+        if kill -0 $GOST_PID 2>/dev/null; then
+            echo "  gost forwarder running (PID ${GOST_PID})"
+            PROXY_ARGS="--proxy-server=http://127.0.0.1:${GOST_LOCAL_PORT}"
+        else
+            echo "  WARNING: gost failed to start, falling back to direct proxy"
+            PROXY_ARGS="--proxy-server=${ABP_PROXY_SERVER}"
+        fi
+    else
+        # No credentials — pass directly to Chrome
+        PROXY_ARGS="--proxy-server=${ABP_PROXY_SERVER}"
+    fi
     if [ -n "${ABP_PROXY_BYPASS:-}" ]; then
         PROXY_ARGS="${PROXY_ARGS} --proxy-bypass-list=${ABP_PROXY_BYPASS}"
     fi

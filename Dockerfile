@@ -3,6 +3,15 @@ FROM debian:bookworm-slim AS downloader
 RUN apt-get update && apt-get install -y --no-install-recommends wget ca-certificates binutils \
     && rm -rf /var/lib/apt/lists/*
 
+# Download gost — lightweight proxy forwarder for authenticated proxy support.
+# Chrome cannot handle proxy credentials in --proxy-server; gost bridges the gap.
+ARG GOST_VERSION=3.2.6
+RUN wget -q "https://github.com/go-gost/gost/releases/download/v${GOST_VERSION}/gost_${GOST_VERSION}_linux_amd64.tar.gz" \
+    -O /tmp/gost.tar.gz \
+    && tar -xzf /tmp/gost.tar.gz -C /usr/local/bin gost \
+    && chmod +x /usr/local/bin/gost \
+    && rm /tmp/gost.tar.gz
+
 # Download our stealth-patched ABP binary from GitHub Releases.
 ARG ABP_STEALTH_VERSION=stealth-20260402-131236
 RUN wget -q "https://github.com/nmajor/abp-unikraft/releases/download/${ABP_STEALTH_VERSION}/abp-stealth-linux-x64.tar.gz" \
@@ -48,6 +57,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/log/* /tmp/*
 
 COPY --from=downloader /opt/abp /opt/abp
+COPY --from=downloader /usr/local/bin/gost /usr/local/bin/gost
 
 RUN mkdir -p /tmp/abp-data /tmp/abp-sessions
 
