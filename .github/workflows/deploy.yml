@@ -3,7 +3,7 @@ name: Build and Deploy to KraftCloud
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, feat/proxy-auth-gost]
 
 env:
   KRAFT_VERSION: "0.12.6-26-gd96d6411"
@@ -29,7 +29,7 @@ jobs:
           kraft cloud deploy \
             --token "${UKC_TOKEN}" \
             --metro fra0 \
-            --name abp-unikraft \
+            --name ${{ github.ref == 'refs/heads/main' && 'abp-unikraft' || 'abp-proxy-test' }} \
             --runtime index.unikraft.io/official/base-compat:latest \
             --scale-to-zero idle \
             --scale-to-zero-stateful \
