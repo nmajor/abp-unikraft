@@ -50,14 +50,14 @@ GOST_PUBLIC_USER="${ABP_GOST_PUBLIC_USER:-capsolver}"
 GOST_PUBLIC_PASS="${ABP_GOST_PUBLIC_PASS:-}"
 
 if [ -n "${GOST_PUBLIC_PASS:-}" ] && echo "${ABP_PROXY_SERVER}" | grep -q '@'; then
-    echo "  Starting public SOCKS5 proxy on :${GOST_PUBLIC_PORT} for CapSolver"
-    /usr/local/bin/gost -L "socks5://${GOST_PUBLIC_USER}:${GOST_PUBLIC_PASS}@:${GOST_PUBLIC_PORT}" -F "${ABP_PROXY_SERVER}" &
+    echo "  Starting public HTTP proxy on :${GOST_PUBLIC_PORT} for CapSolver"
+    /usr/local/bin/gost -L "http://${GOST_PUBLIC_USER}:${GOST_PUBLIC_PASS}@:${GOST_PUBLIC_PORT}" -F "${ABP_PROXY_SERVER}" &
     GOST_PUBLIC_PID=$!
     sleep 1
     if kill -0 $GOST_PUBLIC_PID 2>/dev/null; then
-        echo "  Public SOCKS5 proxy running (PID ${GOST_PUBLIC_PID})"
+        echo "  Public HTTP proxy running (PID ${GOST_PUBLIC_PID})"
     else
-        echo "  WARNING: Public SOCKS5 proxy failed to start"
+        echo "  WARNING: Public HTTP proxy failed to start"
     fi
 fi
 
