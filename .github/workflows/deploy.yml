@@ -5,9 +5,6 @@ on:
   push:
     branches: [main, feat/proxy-auth-gost]
 
-env:
-  KRAFT_VERSION: "0.12.6-26-gd96d6411"
-
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -16,27 +13,20 @@ jobs:
 
       - name: Install kraft CLI
         run: |
-          wget -q "https://github.com/unikraft/kraftkit/releases/download/v${KRAFT_VERSION}/kraftkit_${KRAFT_VERSION}_linux_amd64.deb" \
-            -O /tmp/kraftkit.deb
-          sudo dpkg -i /tmp/kraftkit.deb
+          curl -sfL https://get.kraftkit.sh | sudo sh
           kraft version
 
-      - name: Authenticate to KraftCloud
+      - name: Authenticate and Deploy
         env:
           UKC_TOKEN: ${{ secrets.UKC_TOKEN }}
         run: |
-          DECODED=$(echo "$UKC_TOKEN" | base64 -d)
-          UKC_USER=$(echo "$DECODED" | cut -d: -f1)
-          UKC_PASS=$(echo "$DECODED" | cut -d: -f2)
-          mkdir -p ~/.config/kraftkit
-          printf 'no_prompt: true\nauth:\n  api.fra0.kraft.cloud:\n    user: "%s"\n    token: "%s"\n    endpoint: api.fra0.kraft.cloud\n    verify_ssl: true\n  index.unikraft.io:\n    user: "%s"\n    token: "%s"\n    endpoint: index.unikraft.io\n    verify_ssl: true\n' \
-            "$UKC_USER" "$UKC_PASS" "$UKC_USER" "$UKC_PASS" \
-            > ~/.config/kraftkit/config.yaml
+          DECODED=$(printf '%s' "$UKC_TOKEN" | base64 -d)
+          UKC_USER=$(printf '%s' "$DECODED" | cut -d: -f1)
+          UKC_PASS=$(printf '%s' "$DECODED" | cut -d: -f2)
 
-      - name: Deploy to KraftCloud
-        env:
-          UKC_METRO: fra0
-        run: |
+          kraft login --user "$UKC_USER" --token "$UKC_PASS" index.unikraft.io
+          kraft login --user "$UKC_USER" --token "$UKC_PASS" api.fra0.kraft.cloud
+
           kraft cloud deploy \
             --metro fra0 \
             --name ${{ github.ref == 'refs/heads/main' && 'abp-unikraft' || 'abp-proxy-test' }} \
