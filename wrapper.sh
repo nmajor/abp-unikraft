@@ -93,6 +93,7 @@ exec "${ABP_BINARY}" \
     --abp-fingerprint-platform="${ABP_FINGERPRINT_PLATFORM}" \
     --abp-timezone="${ABP_TIMEZONE}" \
     ${UA_OVERRIDE:+--user-agent="${UA_OVERRIDE}"} \
+    --disable-features=UserAgentClientHint \
     --headless=new \
     --no-sandbox \
     --disable-dev-shm-usage \
