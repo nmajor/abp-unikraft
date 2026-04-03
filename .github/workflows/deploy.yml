@@ -21,6 +21,17 @@ jobs:
           sudo dpkg -i /tmp/kraftkit.deb
           kraft version
 
+      - name: Authenticate to KraftCloud
+        env:
+          UKC_TOKEN: ${{ secrets.UKC_TOKEN }}
+        run: |
+          # Extract user and token from base64-encoded UKC_TOKEN
+          DECODED=$(echo "$UKC_TOKEN" | base64 -d)
+          UKC_USER=$(echo "$DECODED" | cut -d: -f1)
+          UKC_PASS=$(echo "$DECODED" | cut -d: -f2)
+          kraft login --user "$UKC_USER" --token "$UKC_PASS" index.unikraft.io
+          kraft login --user "$UKC_USER" --token "$UKC_PASS" api.fra0.kraft.cloud
+
       - name: Deploy to KraftCloud
         env:
           UKC_TOKEN: ${{ secrets.UKC_TOKEN }}
