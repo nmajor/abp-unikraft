@@ -31,20 +31,20 @@ jobs:
           UKC_PASS=$(echo "$DECODED" | cut -d: -f2)
           # Set up kraft config for both API and registry
           mkdir -p ~/.config/kraftkit
-          cat > ~/.config/kraftkit/config.yaml << KRAFTEOF
-          no_prompt: true
-          auth:
-            api.fra0.kraft.cloud:
-              user: "${UKC_USER}"
-              token: "${UKC_PASS}"
-              endpoint: api.fra0.kraft.cloud
-              verify_ssl: true
-            index.unikraft.io:
-              user: "${UKC_USER}"
-              token: "${UKC_PASS}"
-              endpoint: index.unikraft.io
-              verify_ssl: true
-          KRAFTEOF
+          cat > ~/.config/kraftkit/config.yaml <<KRAFTEOF
+no_prompt: true
+auth:
+  api.fra0.kraft.cloud:
+    user: "${UKC_USER}"
+    token: "${UKC_PASS}"
+    endpoint: api.fra0.kraft.cloud
+    verify_ssl: true
+  index.unikraft.io:
+    user: "${UKC_USER}"
+    token: "${UKC_PASS}"
+    endpoint: index.unikraft.io
+    verify_ssl: true
+KRAFTEOF
 
       - name: Deploy to KraftCloud
         env:
@@ -52,7 +52,6 @@ jobs:
           UKC_METRO: fra0
         run: |
           kraft cloud deploy \
-            --token "${UKC_TOKEN}" \
             --metro fra0 \
             --name ${{ github.ref == 'refs/heads/main' && 'abp-unikraft' || 'abp-proxy-test' }} \
             --runtime index.unikraft.io/official/base-compat:latest \
