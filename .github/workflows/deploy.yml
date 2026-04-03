@@ -29,8 +29,22 @@ jobs:
           DECODED=$(echo "$UKC_TOKEN" | base64 -d)
           UKC_USER=$(echo "$DECODED" | cut -d: -f1)
           UKC_PASS=$(echo "$DECODED" | cut -d: -f2)
-          kraft login --user "$UKC_USER" --token "$UKC_PASS" index.unikraft.io
-          kraft login --user "$UKC_USER" --token "$UKC_PASS" api.fra0.kraft.cloud
+          # Set up kraft config for both API and registry
+          mkdir -p ~/.config/kraftkit
+          cat > ~/.config/kraftkit/config.yaml << KRAFTEOF
+          no_prompt: true
+          auth:
+            api.fra0.kraft.cloud:
+              user: "${UKC_USER}"
+              token: "${UKC_PASS}"
+              endpoint: api.fra0.kraft.cloud
+              verify_ssl: true
+            index.unikraft.io:
+              user: "${UKC_USER}"
+              token: "${UKC_PASS}"
+              endpoint: index.unikraft.io
+              verify_ssl: true
+          KRAFTEOF
 
       - name: Deploy to KraftCloud
         env:
