@@ -3,7 +3,7 @@ name: Build and Deploy to KraftCloud
 on:
   workflow_dispatch:
   push:
-    branches: [main, feat/proxy-auth-gost]
+    branches: [main]
 
 # Disable OIDC token to prevent kraft from auto-discovering GH Actions auth
 permissions: {}
