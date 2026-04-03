@@ -77,11 +77,22 @@ socat TCP-LISTEN:${EXTERNAL_PORT},fork,reuseaddr,bind=0.0.0.0 TCP:127.0.0.1:${AB
 # Note: --disable-default-apps, --disable-extensions are intentionally REMOVED
 # as they are automation telltale signals. The --abp-fingerprint flag triggers
 # the C++ stealth patches to activate.
+# Build a platform-correct UA string since the C++ patch may not be active.
+ABP_CHROME_VERSION="${ABP_CHROME_VERSION:-129}"
+if [ "${ABP_FINGERPRINT_PLATFORM}" = "windows" ]; then
+    UA_OVERRIDE="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${ABP_CHROME_VERSION}.0.0.0 Safari/537.36"
+elif [ "${ABP_FINGERPRINT_PLATFORM}" = "macos" ]; then
+    UA_OVERRIDE="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${ABP_CHROME_VERSION}.0.0.0 Safari/537.36"
+else
+    UA_OVERRIDE=""
+fi
+
 exec "${ABP_BINARY}" \
     --abp-port="${ABP_INTERNAL_PORT}" \
     --abp-fingerprint="${ABP_FINGERPRINT_SEED}" \
     --abp-fingerprint-platform="${ABP_FINGERPRINT_PLATFORM}" \
     --abp-timezone="${ABP_TIMEZONE}" \
+    ${UA_OVERRIDE:+--user-agent="${UA_OVERRIDE}"} \
     --headless=new \
     --no-sandbox \
     --disable-dev-shm-usage \
