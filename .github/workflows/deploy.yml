@@ -29,6 +29,8 @@ jobs:
 
           kraft login --user "$UKC_USER" --token "$UKC_PASS" index.unikraft.io
           kraft login --user "$UKC_USER" --token "$UKC_PASS" api.fra0.kraft.cloud
+          echo "$UKC_PASS" | docker login index.unikraft.io -u "$UKC_USER" --password-stdin
+          cat ~/.config/kraftkit/config.yaml
 
           kraft cloud deploy \
             --metro fra0 \
