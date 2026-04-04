@@ -56,7 +56,7 @@ apt-get install -y \
     libnss3-dev libpango1.0-dev libpulse-dev libudev-dev libva-dev \
     libxcomposite-dev libxdamage-dev libxrandr-dev libxshmfence-dev \
     lsb-release ninja-build pkg-config python3 python3-pip \
-    sudo wget xz-utils file
+    sudo wget xz-utils unzip file
 
 # Install gh CLI
 if ! command -v gh &>/dev/null; then
@@ -191,6 +191,12 @@ python3 utils/domain_substitution.py apply \
     "${BUILD_DIR}/src"
 
 SRC_DIR="${BUILD_DIR}/src"
+
+# Ensure Rust toolchain (CIPD) is present for GN.
+echo "  Ensuring Rust toolchain..."
+chmod +x "${PATCH_REPO}/scripts/ensure-rust-toolchain.sh"
+bash "${PATCH_REPO}/scripts/ensure-rust-toolchain.sh" "${SRC_DIR}"
+
 
 echo "  Chromium source patched with fingerprint-chromium stealth patches."
 
