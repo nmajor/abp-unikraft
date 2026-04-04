@@ -204,7 +204,11 @@ git_preflight() {
     branch="${WATCHDOG_REPO_REF}"
 
     if ! git -C "${PROJECT_DIR}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-        die "Project directory is not a git repository: ${PROJECT_DIR}"
+        WATCHDOG_LAST_STATUS="project directory is not a git repository"
+        state_write
+        audit_log "preflight failed: project directory is not a git repository"
+        log "Project directory is not a git repository: ${PROJECT_DIR}"
+        return 1
     fi
 
     status_output="$(git -C "${PROJECT_DIR}" status --porcelain --untracked-files=all | rg -v '^\?\? \.omc(/|$)' || true)"
@@ -675,23 +679,16 @@ start_cycle() {
             WATCHDOG_LAST_STATUS="resuming bootstrap"
             state_write
             audit_log "resuming bootstrap for existing server"
-            WATCHDOG_PHASE="bootstrapping"
-            WATCHDOG_BOOTSTRAP_STATUS="waiting for SSH"
-            state_write
-            if ! wait_for_ssh; then
-                handle_failure "bootstrap failed: ssh did not become ready"
-                return $?
+            if ! bootstrap_remote_build; then
+                WATCHDOG_PHASE="bootstrapping"
+                WATCHDOG_LAST_STATUS="bootstrap incomplete; will resume next cycle"
+                state_write
+                audit_log "bootstrap incomplete; leaving server running"
+                write_cycle_snapshot
+                run_codex_cycle
+                return 0
             fi
-            WATCHDOG_BOOTSTRAP_STATUS="preparing remote repo"
-            state_write
-            if ! prepare_remote_repo; then
-                handle_failure "bootstrap failed: remote repo preparation failed"
-                return $?
-            fi
-            if ! start_remote_build; then
-                handle_failure "bootstrap failed: remote build failed to start"
-                return $?
-            fi
+            write_cycle_snapshot
             run_codex_cycle
             return 0
         fi
@@ -750,29 +747,14 @@ start_cycle() {
 }
 
 start_fresh_build() {
-    if ! git_preflight; then
-        write_cycle_snapshot
-        return 1
-    fi
     create_server
-    WATCHDOG_PHASE="bootstrapping"
-    WATCHDOG_BOOTSTRAP_STATUS="waiting for SSH"
-    state_write
-    audit_log "waiting for SSH on fresh server"
-    if ! wait_for_ssh; then
-        handle_failure "bootstrap failed: ssh did not become ready"
-        return $?
-    fi
-    WATCHDOG_BOOTSTRAP_STATUS="preparing remote repo"
-    state_write
-    audit_log "preparing remote repo on fresh server"
-    if ! prepare_remote_repo; then
-        handle_failure "bootstrap failed: remote repo preparation failed"
-        return $?
-    fi
-    if ! start_remote_build; then
-        handle_failure "bootstrap failed: remote build failed to start"
-        return $?
+    if ! bootstrap_remote_build; then
+        WATCHDOG_PHASE="bootstrapping"
+        WATCHDOG_LAST_STATUS="bootstrap incomplete; will resume next cycle"
+        state_write
+        audit_log "bootstrap incomplete after fresh server creation"
+        write_cycle_snapshot
+        return 0
     fi
     WATCHDOG_LAST_STATUS="build started"
     state_write
