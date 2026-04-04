@@ -53,7 +53,7 @@ The watchdog is intentionally separate from the core build/runtime files. It sup
 The cron entry runs every 15 minutes and uses `zsh -lc` so `~/.zshrc` exports are visible:
 
 ```cron
-*/15 * * * * cd /home/coder/app/abp-unikraft && zsh -lc 'WATCHDOG_STATE_DIR=$HOME/.cache/abp-watchdog WATCHDOG_AUTO_RETRY=1 WATCHDOG_RUN_CODEX=1 ./scripts/watchdog-hetzner.sh cycle >> $HOME/.cache/abp-watchdog/cron.log 2>&1'
+*/15 * * * * cd /home/coder/app/abp-unikraft && zsh -lc 'WATCHDOG_STATE_DIR=$HOME/.cache/abp-watchdog WATCHDOG_AUTO_RETRY=1 WATCHDOG_RUN_CODEX=1 WATCHDOG_CODEX_TIMEOUT_SECONDS=600 ./scripts/watchdog-hetzner.sh cycle >> $HOME/.cache/abp-watchdog/cron.log 2>&1'
 ```
 
 The watchdog always writes a human-readable prompt file in the state directory, but the intended pattern is cron -> `watchdog-hetzner.sh cycle` -> `codex exec`.
@@ -81,7 +81,7 @@ The watchdog refuses to start from a dirty or unpushed repo and records the exac
 - `WATCHDOG_MAX_RETRIES` defaults to `2`
 - `WATCHDOG_AUTO_RETRY=1` retries a failed run up to `WATCHDOG_MAX_RETRIES`
 - `WATCHDOG_RUN_CODEX=1` makes each cycle invoke `codex exec`
-- `WATCHDOG_CODEX_TIMEOUT_SECONDS` bounds each Codex cycle
+- `WATCHDOG_CODEX_TIMEOUT_SECONDS` bounds each Codex cycle and should stay comfortably below 15 minutes; default is `600`
 - `WATCHDOG_CODEX_SEARCH=1` enables Codex web search during each cycle
 - `WATCHDOG_POST_BUILD_SMOKE_URLS` sets the post-release smoke-test targets
 

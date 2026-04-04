@@ -50,7 +50,7 @@ WATCHDOG_SSH_TIMEOUT="${WATCHDOG_SSH_TIMEOUT:-10}"
 WATCHDOG_BUILD_TIMEOUT_HOURS="${WATCHDOG_BUILD_TIMEOUT_HOURS:-8}"
 WATCHDOG_RUN_CODEX="${WATCHDOG_RUN_CODEX:-1}"
 WATCHDOG_CODEX_MODEL="${WATCHDOG_CODEX_MODEL:-gpt-5}"
-WATCHDOG_CODEX_TIMEOUT_SECONDS="${WATCHDOG_CODEX_TIMEOUT_SECONDS:-840}"
+WATCHDOG_CODEX_TIMEOUT_SECONDS="${WATCHDOG_CODEX_TIMEOUT_SECONDS:-600}"
 WATCHDOG_CODEX_SEARCH="${WATCHDOG_CODEX_SEARCH:-1}"
 WATCHDOG_POST_BUILD_SMOKE_URLS="${WATCHDOG_POST_BUILD_SMOKE_URLS:-https://google.com https://www.olx.pt}"
 WATCHDOG_BOOTSTRAP_TIMEOUT_MINUTES="${WATCHDOG_BOOTSTRAP_TIMEOUT_MINUTES:-30}"
@@ -810,7 +810,7 @@ install_cron() {
     local repo_root cron_line current_crontab tmp_crontab marker
     repo_root="${PROJECT_DIR}"
     marker="# ABP watchdog deployment"
-    cron_line="*/15 * * * * cd ${repo_root} && zsh -lc 'WATCHDOG_STATE_DIR=${STATE_DIR} WATCHDOG_AUTO_RETRY=1 WATCHDOG_RUN_CODEX=1 WATCHDOG_CODEX_SEARCH=1 ./scripts/watchdog-hetzner.sh cycle >> ${CRON_LOG_FILE} 2>&1' ${marker}"
+    cron_line="*/15 * * * * cd ${repo_root} && zsh -lc 'WATCHDOG_STATE_DIR=${STATE_DIR} WATCHDOG_AUTO_RETRY=1 WATCHDOG_RUN_CODEX=1 WATCHDOG_CODEX_SEARCH=1 WATCHDOG_CODEX_TIMEOUT_SECONDS=600 ./scripts/watchdog-hetzner.sh cycle >> ${CRON_LOG_FILE} 2>&1' ${marker}"
 
     current_crontab="$(crontab -l 2>/dev/null || true)"
     tmp_crontab="$(mktemp)"
