@@ -113,3 +113,7 @@ The watchdog is designed to delete the Hetzner server itself on completion. If y
 ```
 
 That clears the remote VM and the local state files.
+
+## Durable Fix Log
+
+- 2026-04-04: Switched GN bootstrap to use a prebuilt GN binary from CIPD in `scripts/build-on-fp-chromium.sh`. This avoids a recurring failure when compiling GN with clang against Ubuntu 22.04's libstdc++11 (C++20 ranges in `<algorithm>`/`<ranges>`). If the download ever fails, the script falls back to local bootstrap.
