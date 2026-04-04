@@ -141,19 +141,33 @@ acquire_lock() {
 }
 
 load_env_from_zshrc() {
-    if [ -z "${HETZNER_API}" ] && [ -f "$HOME/.zshrc" ] && grep -q '^export HETZNER_API_TOKEN=' "$HOME/.zshrc"; then
-        # shellcheck disable=SC1090
-        set -a
-        . "$HOME/.zshrc"
-        set +a
-        HETZNER_API="${HETZNER_API_TOKEN:-}"
+    local token_line token_value
+    if [ ! -f "$HOME/.zshrc" ]; then
+        return 0
     fi
-    if [ -z "${GH_TOKEN}" ] && [ -f "$HOME/.zshrc" ] && grep -q '^export GH_TOKEN=' "$HOME/.zshrc"; then
-        # shellcheck disable=SC1090
-        set -a
-        . "$HOME/.zshrc"
-        set +a
-        GH_TOKEN="${GH_TOKEN:-${GH_TOKEN:-}}"
+
+    if [ -z "${HETZNER_API}" ]; then
+        token_line="$(grep '^export HETZNER_API_TOKEN=' "$HOME/.zshrc" | tail -n1 || true)"
+        token_value="${token_line#export HETZNER_API_TOKEN=}"
+        token_value="${token_value%\"}"
+        token_value="${token_value#\"}"
+        token_value="${token_value%\'}"
+        token_value="${token_value#\'}"
+        if [ -n "${token_value}" ] && [ "${token_value}" != "${token_line}" ]; then
+            HETZNER_API="${token_value}"
+        fi
+    fi
+
+    if [ -z "${GH_TOKEN}" ]; then
+        token_line="$(grep '^export GH_TOKEN=' "$HOME/.zshrc" | tail -n1 || true)"
+        token_value="${token_line#export GH_TOKEN=}"
+        token_value="${token_value%\"}"
+        token_value="${token_value#\"}"
+        token_value="${token_value%\'}"
+        token_value="${token_value#\'}"
+        if [ -n "${token_value}" ] && [ "${token_value}" != "${token_line}" ]; then
+            GH_TOKEN="${token_value}"
+        fi
     fi
 }
 
