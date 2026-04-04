@@ -1,119 +1,168 @@
 # Watchdog Deployment Workflow
 
-Use this when you want a long Hetzner build to keep moving while Codex checks it in 15-minute cycles.
+Use this when a Chromium build on Hetzner will take hours and you want a small cron heartbeat to keep one build flow moving without babysitting it continuously.
 
-## What It Does
+## Architecture
 
-`scripts/watchdog-hetzner.sh` is the entrypoint. It:
+The watchdog now has two deterministic parts:
 
-- creates a temporary Hetzner VM
-- clones the ABP repo on the VM
-- starts `scripts/build-on-fp-chromium.sh` remotely
-- polls the remote log on each cycle
-- generates a Codex-ready prompt file
-- invokes `codex exec` itself on each cron/manual cycle by default
-- retries on crash if allowed
-- destroys the VM on success or after cleanup
-- removes its own cron entry on terminal success or failure
+1. Local watchdog: `scripts/watchdog-hetzner.sh`
+   - owns one build flow
+   - owns one authoritative Hetzner VM for that flow
+   - owns cron, timeouts, audit logs, and cleanup
+   - never tries to infer workflow state from random shell output
 
-The watchdog is intentionally separate from the core build/runtime files. It supervises the build, but it does not change Chromium or ABP behavior itself.
+2. Remote supervisor: `scripts/watchdog-remote.sh`
+   - copied to the Hetzner VM at `/root/abp-watchdog/watchdog-remote.sh`
+   - owns the remote build PID, commit SHA, phase, exit code, failure summary, and log file
+   - exposes deterministic commands: `status`, `start`, `restart`, `stop`, `tail`, `heartbeat`, `artifact-path`
 
-## Prerequisites
+The prompt is intentionally narrow now:
+- only used for repo-side repair work
+- does not create or destroy VMs
+- does not decide retries
+- does not decide workflow state
 
-- `HETZNER_API_TOKEN` exported in `~/.zshrc` and present in the shell environment
-- `GH_TOKEN` exported or `gh auth token` working locally
-- `abp-build-key` present in Hetzner
-- `ssh`, `scp`, `curl`, `gh`, and `zsh` available locally
-- the repo committed and pushed on `main` before starting the watchdog
+## Design Rules
+
+- One build flow uses one VM.
+- Do not destroy the VM on ordinary build failure.
+- Keep the VM alive across repair cycles.
+- Only destroy the VM when:
+  - the build completes successfully
+  - the flow exceeds 24 hours
+  - cleanup is explicitly requested
+- If the tracked VM truly disappears, abort the flow instead of silently creating more VMs.
 
 ## Commands
 
 ```bash
-# Start or poll the build
+# Start or poll the current flow
 ./scripts/watchdog-hetzner.sh cycle
 
-# Print the current state only
+# Show current local state and remote tail
 ./scripts/watchdog-hetzner.sh status
 
-# Render the next Codex prompt
+# Render the repair prompt that would be sent to Codex
 ./scripts/watchdog-hetzner.sh prompt
 
-# Tear down the remote VM and clear local state
-./scripts/watchdog-hetzner.sh cleanup
-
-# Install a 15-minute cron entry
+# Install the 15-minute cron heartbeat
 ./scripts/watchdog-hetzner.sh install-cron
 
-# Remove the watchdog cron entry manually
+# Remove the cron heartbeat
 ./scripts/watchdog-hetzner.sh uninstall-cron
+
+# Destroy the tracked VM and clear local state
+./scripts/watchdog-hetzner.sh cleanup
 ```
 
 ## Cron Pattern
 
-The cron entry runs every 15 minutes and uses `zsh -lc` so `~/.zshrc` exports are visible:
+The cron job is intentionally small:
 
 ```cron
-*/15 * * * * cd /home/coder/app/abp-unikraft && zsh -lc 'WATCHDOG_STATE_DIR=$HOME/.cache/abp-watchdog WATCHDOG_AUTO_RETRY=1 WATCHDOG_RUN_CODEX=1 WATCHDOG_CODEX_TIMEOUT_SECONDS=600 ./scripts/watchdog-hetzner.sh cycle >> $HOME/.cache/abp-watchdog/cron.log 2>&1'
+*/15 * * * * cd /home/coder/app/abp-unikraft && zsh -lc 'PATH=/var/lib/asdf/installs/nodejs/24.8.0/bin:/var/lib/asdf/shims:/usr/local/bin:/usr/bin:/bin WATCHDOG_STATE_DIR=$HOME/.cache/abp-watchdog WATCHDOG_RUN_CODEX=1 WATCHDOG_CODEX_BIN=/var/lib/asdf/installs/nodejs/24.8.0/bin/codex WATCHDOG_CODEX_SEARCH=1 WATCHDOG_CODEX_TIMEOUT_SECONDS=600 ./scripts/watchdog-hetzner.sh cycle >> $HOME/.cache/abp-watchdog/cron.log 2>&1'
 ```
 
-The watchdog always writes a human-readable prompt file in the state directory, but the intended pattern is cron -> `watchdog-hetzner.sh cycle` -> `codex exec`.
+Each cron tick does one thing:
+- call `watchdog-hetzner.sh cycle`
+
+If another cycle is already running:
+- skip cleanly
+- log the skip
+- only warn if the lock survives for roughly an hour across multiple skipped cycles
+
+This means a 20-40 minute repair loop is treated as normal, not as a failure.
+
+## State Ownership
+
+Local state:
+- `~/.cache/abp-watchdog/state.env`
+- authoritative local view of the flow, VM, commit, and last known remote phase
+
+Remote state:
+- `/root/abp-watchdog/state.env`
+- authoritative remote view of build PID, commit SHA, remote phase, exit code, release tag, and artifact path
+
+Remote log:
+- `/root/abp-watchdog/build.log`
+
+The local watchdog should trust the remote supervisor for build status instead of guessing from raw logs.
 
 ## Audit Trail
 
-Every cycle writes:
+The watchdog writes:
 
-- `~/.cache/abp-watchdog/audit.log` — append-only high-level events
-- `~/.cache/abp-watchdog/cron.log` — cron stdout/stderr
-- `~/.cache/abp-watchdog/watchdog.log` — Codex cycle output
-- `~/.cache/abp-watchdog/checks/<timestamp>.log` — per-cycle state snapshot with repo SHA and remote log tail
+- `~/.cache/abp-watchdog/audit.log`
+  - high-level flow events
+- `~/.cache/abp-watchdog/cron.log`
+  - cron stdout/stderr
+- `~/.cache/abp-watchdog/watchdog.log`
+  - Codex repair output
+- `~/.cache/abp-watchdog/checks/<timestamp>.log`
+  - per-cycle snapshot of local state plus remote tail
+- `~/.cache/abp-watchdog/remote-build-<timestamp>.log`
+  - saved remote failure logs when a build fails
 
-The watchdog refuses to start from a dirty or unpushed repo and records the exact source commit in state.
+## Flow Semantics
 
-## Runtime Knobs
+Healthy build:
+- cron polls
+- local watchdog asks remote supervisor for `status`
+- if remote phase is `building`, watchdog just records the check and exits
+- no Codex prompt is needed
 
-- `WATCHDOG_SERVER_TYPE` defaults to `cpx51`
-- `WATCHDOG_SERVER_LOCATION` defaults to `ash`
-- `WATCHDOG_FP_CHROMIUM_TAG` defaults to `142.0.7444.175` because that is the latest source-available fp-chromium tag currently buildable in this pipeline
-- `WATCHDOG_ABP_BRANCH` defaults to `dev`
-- `WATCHDOG_REPO_REF` defaults to `main`
-- `WATCHDOG_BUILD_TIMEOUT_HOURS` defaults to `8`
-- `WATCHDOG_SSH_TIMEOUT` defaults to `10`
-- `WATCHDOG_MAX_RETRIES` defaults to `2`
-- `WATCHDOG_AUTO_RETRY=1` retries a failed run up to `WATCHDOG_MAX_RETRIES`
-- `WATCHDOG_RUN_CODEX=1` makes each cycle invoke `codex exec`
-- `WATCHDOG_CODEX_TIMEOUT_SECONDS` bounds each Codex cycle and should stay comfortably below 15 minutes; default is `600`
-- `WATCHDOG_CODEX_SEARCH=1` enables Codex web search during each cycle
-- `WATCHDOG_POST_BUILD_SMOKE_URLS` sets the post-release smoke-test targets
+Failed build:
+- remote supervisor reports `failed`
+- local watchdog moves the flow to `repair_pending`
+- same VM stays alive
+- failure log is saved locally
+- Codex is prompted only to fix repo code, commit, and push
+
+Repair restart:
+- next cycle checks if local `HEAD` is clean and pushed
+- if the pushed commit is newer than the failed commit, watchdog calls remote `restart <sha>`
+- restart happens on the same VM
+
+Completed build:
+- remote supervisor reports `completed`
+- watchdog records the release tag
+- watchdog destroys the VM
+- watchdog removes its cron entry
+
+Timed-out flow:
+- if the flow age exceeds `WATCHDOG_FLOW_TIMEOUT_HOURS` (default `24`)
+- watchdog saves logs, destroys the VM, and aborts the flow
+
+## Deterministic Responsibilities
+
+These should stay in code, not in the prompt:
+
+- creating and deleting the VM
+- checking whether the VM still exists
+- checking SSH reachability
+- copying the remote supervisor
+- pinning an exact repo commit SHA
+- starting and restarting the build
+- tracking the remote PID and exit code
+- saving failure logs
+- enforcing the 24-hour timeout
+- cron skip/lock accounting
+
+The prompt should only handle:
+- repo-side root cause analysis
+- code changes
+- commit and push
 
 ## Current Build Goals
 
-The watchdog prompt always carries the current implementation goals:
-
-- rebase to the latest validated `fingerprint-chromium`
-- keep ABP protocol behavior intact
-- keep bandwidth metering and full-page screenshot support
-- remove the old ABP stealth namespace from the active runtime contract
-- keep cleanup strict so the Hetzner VM never lingers after success or failure
-- encode durable improvements back into the repo so each future watchdog run gets smoother
-
-## Recommended Use
-
-1. Start a cycle manually with `./scripts/watchdog-hetzner.sh cycle`.
-2. Let cron call the same command every 15 minutes.
-3. Each cycle will invoke Codex, which should either keep watching, fix and restart, or finish the deploy/test path.
-4. If the build fails terminally or succeeds completely, the watchdog removes its own cron entry so it does not run forever.
-5. Durable fixes discovered during a cycle should be committed back into the repo or docs instead of being left as one-off operator knowledge.
-
-## Cleanup
-
-The watchdog is designed to delete the Hetzner server itself on completion. If you interrupt the workflow, run:
-
-```bash
-./scripts/watchdog-hetzner.sh cleanup
-```
-
-That clears the remote VM and the local state files.
+- build against the latest source-available validated `fingerprint-chromium`
+- preserve ABP protocol behavior
+- preserve bandwidth metering and full-page screenshot support
+- keep the active runtime contract on native `fingerprint-chromium` switches
+- keep the watchdog minimal and deterministic
 
 ## Durable Fix Log
 
-- 2026-04-04: Switched GN bootstrap to use a prebuilt GN binary from CIPD in `scripts/build-on-fp-chromium.sh`. This avoids a recurring failure when compiling GN with clang against Ubuntu 22.04's libstdc++11 (C++20 ranges in `<algorithm>`/`<ranges>`). If the download ever fails, the script falls back to local bootstrap.
+- 2026-04-04: Switched GN bootstrap to prefer a prebuilt GN binary from CIPD in `scripts/build-on-fp-chromium.sh`.
+- 2026-04-04: Re-architected the watchdog around a deterministic remote supervisor instead of having the prompt participate in infrastructure control.

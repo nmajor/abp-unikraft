@@ -40,6 +40,8 @@ the release to GitHub, destroy the VM. The workflow doc covers every gotcha
 Key files:
 - `scripts/hetzner-build.sh` — automated orchestrator (create VM → build → destroy)
 - `scripts/build-on-fp-chromium.sh` — the build script that runs ON the VM
+- `scripts/watchdog-hetzner.sh` — deterministic local watchdog for long-running build flows
+- `scripts/watchdog-remote.sh` — deterministic remote supervisor copied to the Hetzner VM
 - `scripts/verify-abp-overlay-contract.sh` — fail-fast guard against legacy ABP stealth remapping
 - `scripts/apply-stealth-extra-edits.sh` — our stealth gap patches
 - `scripts/apply-feature-edits.sh` — bandwidth metering + screenshot features
@@ -116,6 +118,7 @@ IMPORTANT:
 - Record both the latest upstream fp-chromium release and the latest source-available fp-chromium tag when they differ. If upstream is temporarily binary-only, document that explicitly instead of silently bumping the build pin.
 - Update this file, `README.md`, `MIGRATION.md`, and the GitHub release notes when a new build is cut.
 - If a watchdog or Hetzner build uncovers a recurring failure mode, encode the fix in scripts/docs so the next build is smoother.
+- The watchdog architecture is: one build flow, one authoritative VM, one deterministic remote supervisor. Do not let prompts own VM lifecycle.
 - Never ship a new binary without an auditable paper trail of version, release tag, and notable changes.
 
 When doing builds or making changes, update:
