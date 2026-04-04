@@ -323,9 +323,26 @@ blink_symbol_level = 0
 GNARGS
 fi
 
-# Bootstrap GN if needed (no depot_tools).
-if [ ! -f "${SRC_DIR}/out/Release/gn" ]; then
-    echo "  Bootstrapping GN..."
+# GN: prefer prebuilt binary over local bootstrap (more reliable on Ubuntu 22.04).
+# This avoids libstdc++ C++20 ranges issues when building GN with clang+libstdc++11.
+if [ ! -x "${SRC_DIR}/out/Release/gn" ]; then
+    echo "  Fetching prebuilt GN binary..."
+    cd "${SRC_DIR}"
+    mkdir -p out/Release
+    if command -v wget >/dev/null 2>&1; then
+        wget -q -O /tmp/gn.zip "https://chrome-infra-packages.appspot.com/dl/gn/gn/linux-amd64/+/latest" || true
+    else
+        curl -fsSL -o /tmp/gn.zip "https://chrome-infra-packages.appspot.com/dl/gn/gn/linux-amd64/+/latest" || true
+    fi
+    if [ -s /tmp/gn.zip ]; then
+        ( cd out/Release && unzip -oq /tmp/gn.zip && chmod +x gn )
+        rm -f /tmp/gn.zip
+    fi
+fi
+
+# Fallback: attempt local bootstrap only if the prebuilt GN isn't available.
+if [ ! -x "${SRC_DIR}/out/Release/gn" ]; then
+    echo "  Prebuilt GN unavailable; attempting local bootstrap..."
     cd "${SRC_DIR}"
     python3 tools/gn/bootstrap/bootstrap.py --skip-generate-buildfiles -j "${NPROC}" -o out/Release/gn
 fi
