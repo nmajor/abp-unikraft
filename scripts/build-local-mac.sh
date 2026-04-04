@@ -13,6 +13,13 @@
 # Default workspace: ~/aspect-stealth-build
 set -euo pipefail
 
+if [ "${ALLOW_LEGACY_ABP_STEALTH:-0}" != "1" ]; then
+    echo "ERROR: scripts/build-local-mac.sh is a legacy pre-fingerprint-chromium build path."
+    echo "Use scripts/build-on-fp-chromium.sh for all active builds."
+    echo "Set ALLOW_LEGACY_ABP_STEALTH=1 only for forensic/reference work."
+    exit 1
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 WORKSPACE="${1:-$HOME/abp-stealth-build}"

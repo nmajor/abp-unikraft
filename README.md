@@ -5,7 +5,16 @@ A stealth-patched [Agent Browser Protocol](https://github.com/theredsix/agent-br
 ## Architecture
 
 ```
-LLM Agent → HTTPS → KraftCloud LB → Unikraft VM → socat → ABP (Chromium fork)
+fingerprint-chromium (stealth base, ~20 patches, BSD-3)
+  + ABP protocol (REST API, sessions, chrome/browser/abp/)
+  + stealth-extra patches (6 patches we maintain, gaps in fp-chromium)
+  + feature edits (bandwidth metering, full page screenshot)
+  + wrapper.sh (gost proxy chain, stealth flags, socat)
+  + Dockerfile → KraftCloud deployment
+```
+
+```
+LLM Agent → HTTPS → KraftCloud LB → Unikraft VM → socat → ABP (Chromium 144)
                                           ↕
                               Scale-to-zero / Snapshot resume (~10ms)
 ```
@@ -13,6 +22,40 @@ LLM Agent → HTTPS → KraftCloud LB → Unikraft VM → socat → ABP (Chromiu
 **ABP** freezes JavaScript execution between agent steps (Debugger.pause + virtual time freeze).
 **Unikraft** statefully snapshots the VM when idle and resumes from snapshot in ~10ms.
 Combined: the browser costs zero compute while the LLM is thinking.
+
+## Stealth Base: fingerprint-chromium
+
+We build on [fingerprint-chromium](https://github.com/adryfish/fingerprint-chromium) (BSD-3),
+an open-source Chromium fork with ~20 C++ stealth patches. This replaced our old approach
+of maintaining 22 custom patches on Chromium 129. See [MIGRATION.md](MIGRATION.md) for the full migration story.
+
+**What fingerprint-chromium provides:**
+- Canvas/WebGL fingerprint noise
+- Audio context manipulation
+- Font enumeration filtering
+- Client Hints patching (native C++ level)
+- User-Agent spoofing (no "Headless")
+- CDP (`Runtime.enable`) detection neutralization
+- GPU info spoofing
+- Hardware concurrency spoofing
+- navigator.webdriver = false
+- And ~10 more stealth surfaces
+
+**What we add on top (stealth-extra patches):**
+- `window.outerWidth/outerHeight` — headless returns 0 without this
+- `Permissions.query()` consistency
+- Remove 11 automation flags (CRITICAL for DataDome)
+- `(pointer: fine)` / `(hover: hover)` media queries (CRITICAL for DataDome)
+- `navigator.deviceMemory` spoofing (hide server RAM)
+- `screen.width/height/colorDepth` spoofing
+
+**Feature patches (ours):**
+- Bandwidth metering — per-action and per-session byte counters in API responses
+- Full page screenshot — `POST /api/v1/tabs/{id}/screenshot/full` captures entire scrollable page
+
+All stealth is controlled via native `fingerprint-chromium` flags. ABP-specific
+flags remain only for protocol/runtime concerns such as the HTTP port, session
+directory, and viewport sizing.
 
 ## Performance (measured on KraftCloud)
 
@@ -22,143 +65,88 @@ Combined: the browser costs zero compute while the LLM is thinking.
 | Wake from snapshot | **~10ms** |
 | Total request round-trip (network + TLS + wake) | ~200ms |
 | Scale-to-zero cooldown | 5 seconds |
-| Image size | 356 MB |
 | Memory | 4 GB |
-
-## Stealth Patches
-
-C++ source-level modifications to Chromium, applied during build. All gated behind `--abp-fingerprint=<seed>`.
-
-**Currently applied (in the binary):**
-- `navigator.webdriver` → always returns `false` (C++ level, undetectable)
-- User-Agent → "HeadlessChrome" removed, reports as regular `Chrome/146.0.0.0`
-- `navigator.plugins` → 5 PDF plugins populated even in headless mode
-- `AutomationControlled` Blink feature disabled at startup
-- Bot detection test (bot.sannysoft.com) → **all tests pass**
-
-**Prepared patches (in `patches/` — need insertion point adjustment for ABP's Chromium version):**
-- WebGL vendor/renderer spoofing (SwiftShader → NVIDIA RTX 3070)
-- `navigator.platform` spoofing (Linux → Win32)
-- Canvas/WebGL pixel readback noise (defeats fingerprinting)
-- Audio context frame count/sample rate noise
-- Font enumeration filtering by platform
-- `window.outerWidth/outerHeight` realistic values
-- Client rects / measureText sub-pixel noise
-- Timezone override
-- `Runtime.enable` CDP detection neutralization
-
-**Feature patches (applied via `scripts/apply-feature-edits.sh`):**
-- Bandwidth metering — per-action and per-session byte counters in API responses
-- Full page screenshot — `POST /api/v1/tabs/{id}/screenshot/full` captures entire scrollable page
-
-**Not fixable via patches (infrastructure):**
-- Datacenter IP detection — needs residential proxy
 
 ## Project Structure
 
 ```
-├── Dockerfile                  # Runtime image (downloads stealth binary from GH Release)
-├── wrapper.sh                  # Entrypoint: starts socat proxy + ABP with stealth flags
-├── patches/                    # Chromium patch files (template-style .patch + series)
-│   ├── series                  # Patch application order
-│   └── 000-017-*.patch         # Individual patches with Description headers
+├── Dockerfile                         # Runtime image (downloads stealth binary from GH Release)
+├── wrapper.sh                         # Entrypoint: gost proxy + ABP with fingerprint-chromium flags
+├── MIGRATION.md                       # Full migration docs (old patches → fingerprint-chromium)
+├── patches/
+│   ├── stealth-extra/                 # 6 patches we maintain (fp-chromium gaps)
+│   └── legacy/                        # Old 22 patches (reference only, replaced by fp-chromium)
 ├── scripts/
-│   ├── apply-stealth-edits.sh  # Python/sed-based source edits (more robust than git apply)
-│   ├── apply-feature-edits.sh  # Bandwidth metering + full page screenshot edits
-│   ├── build-on-hetzner.sh     # One-script build on a rented Hetzner server (~€0.30)
-│   ├── build-local-mac.sh      # Build on macOS (produces macOS binary)
-│   ├── build-linux-via-docker.sh # Build Linux binary via Docker
-│   └── deploy.sh               # Deploy to KraftCloud
-├── src/chrome/browser/abp/stealth/  # New C++ source files (copied into Chromium tree)
-│   ├── abp_stealth_switches.cc/.h   # --abp-fingerprint, --abp-fingerprint-platform, etc.
-│   ├── abp_stealth_utils.cc/.h      # Seed hashing, ShuffleSubchannelColorData()
-│   ├── abp_fingerprint_data.h       # GPU models, font lists, platform data
-│   └── BUILD.gn                     # Build integration
-└── .github/workflows/deploy.yml     # GH Actions: build Docker image → push to KraftCloud
+│   ├── build-on-fp-chromium.sh        # Main build script (runs on Hetzner VM)
+│   ├── verify-abp-overlay-contract.sh # Guard ABP overlay against legacy stealth remapping
+│   ├── apply-stealth-extra-edits.sh   # Apply our 6 stealth gap patches
+│   ├── apply-feature-edits.sh         # Bandwidth metering + full page screenshot
+│   ├── hetzner-build.sh               # Orchestrator: create VM → build → upload → destroy
+│   ├── deploy.sh                      # Local deploy to KraftCloud (needs Docker)
+│   └── test-deployment.sh             # Verify a deployment
+├── docs/workflows/
+│   ├── hetzner-build.md               # Step-by-step Chromium build procedure + known issues
+│   └── deploy-to-kraftcloud.md        # Docker image build + KraftCloud deployment
+└── .github/workflows/deploy.yml       # CI: build Docker image → deploy to KraftCloud on push
 ```
 
 ## Building the Stealth Binary
 
-The binary is a full Chromium build with ABP + our patches. First build takes ~4 hours, incremental rebuilds take minutes.
+The binary is a full Chromium build with fingerprint-chromium patches + ABP protocol + our extras.
+First build takes ~4-6 hours on a Hetzner CPX51.
 
-### Option 1: Hetzner Cloud (~€0.30, recommended)
-
-```bash
-# 1. Create a CCX33 server at console.hetzner.cloud (Ubuntu 22.04 or 24.04)
-# 2. SSH in and run:
-apt-get update && apt-get install -y screen
-screen -S build
-curl -sL https://raw.githubusercontent.com/nmajor/abp-unikraft/main/scripts/build-on-hetzner.sh | bash
-# 3. Ctrl+A D to detach. Check back in ~4 hours.
-# 4. Binary uploads to GitHub Releases automatically.
-# 5. DELETE the server at Hetzner Console.
-```
-
-### Option 2: Local machine (needs 16GB+ RAM, 120GB disk)
+**Read [docs/workflows/hetzner-build.md](docs/workflows/hetzner-build.md) for the complete procedure and known issues.**
 
 ```bash
-git clone https://github.com/nmajor/abp-unikraft.git
-cd abp-unikraft
-./scripts/build-local-mac.sh    # macOS (for local testing)
-./scripts/build-linux-via-docker.sh  # Linux binary via Docker
+# Quick version: automated orchestrator
+./scripts/hetzner-build.sh
 ```
 
-### Incremental Rebuild (after changing patches)
+Key steps:
+1. Create temporary Hetzner CPX51 VM (~€0.25-0.50 total)
+2. Clone fingerprint-chromium (tagged release, currently 144.0.7559.132)
+3. Download + unpack + patch Chromium source
+4. Overlay ABP protocol code and fail the build if the overlay reintroduces legacy ABP stealth remapping
+5. Apply stealth-extra edits + feature edits
+6. Build with ninja (~4-6 hours)
+7. Package and upload to GitHub Releases
+8. Destroy the VM
 
-On a machine with an existing build tree at `/root/build/src`:
+## Deploying to KraftCloud
+
+**Read [docs/workflows/deploy-to-kraftcloud.md](docs/workflows/deploy-to-kraftcloud.md) for full details.**
+
+Deployment runs automatically via GitHub Actions on every push to `main`.
 
 ```bash
-export PATH="/root/build/depot_tools:${PATH}"
-export DEPOT_TOOLS_UPDATE=0
-cd /root/build/src
+# To deploy a new Chromium release:
+# 1. Update ABP_STEALTH_VERSION in Dockerfile to the new release tag
+# 2. Commit and push to main — CI deploys automatically
 
-# Revert old edits, pull new patches, re-apply
-git checkout -- .
-cd /root/abp-unikraft && git pull && cd /root/build/src
-bash /root/abp-unikraft/scripts/apply-stealth-edits.sh /root/build/src
-
-# Rebuild (only recompiles changed files — minutes, not hours)
-autoninja -C out/Release chrome
-
-# Package and upload
-cd out/Release
-mkdir -p /tmp/pkg/abp-chrome
-cp -a abp chrome_crashpad_handler vk_swiftshader_icd.json icudtl.dat \
-      v8_context_snapshot.bin snapshot_blob.bin /tmp/pkg/abp-chrome/ 2>/dev/null
-cp -a *.so* *.pak /tmp/pkg/abp-chrome/ 2>/dev/null
-cp -ra locales lib /tmp/pkg/abp-chrome/ 2>/dev/null
-cd /tmp/pkg && tar -czf /root/abp-stealth-linux-x64.tar.gz abp-chrome/
-
-gh release delete stealth-v0.1.0 --repo nmajor/abp-unikraft --yes
-gh release create stealth-v0.1.0 --repo nmajor/abp-unikraft \
-    --title "ABP Stealth Build v0.1.0" \
-    --notes "description of changes" \
-    /root/abp-stealth-linux-x64.tar.gz
+# Or trigger manually:
+gh workflow run deploy.yml --repo nmajor/abp-unikraft --ref main
 ```
 
-## Deploying to Unikraft
-
-After the binary is uploaded as a GitHub Release:
-
+Verify:
 ```bash
-# 1. Push to trigger GH Actions Docker image build
-git push
-
-# 2. Wait for image to appear (~5 min)
-kraft cloud image list
-
-# 3. Create instance
-kraft cloud instance create \
-    --name abp-stealth \
-    --scale-to-zero idle \
-    --scale-to-zero-stateful \
-    --scale-to-zero-cooldown 5s \
-    --restart on-failure \
-    -p 443:15678 \
-    -M 4096 \
-    -S \
-    nmajor-studios/abp-unikraft:latest
+curl -s "https://<fqdn>/api/v1/browser/status"
+# {"data":{"components":{"browser_window":true,"devtools":true,"http_server":true},...},"success":true}
 ```
+
+## Stealth Configuration (Environment Variables)
+
+| Variable | Default | Description |
+|---|---|---|
+| `ABP_FINGERPRINT_SEED` | random | Deterministic seed for all fingerprint values |
+| `ABP_FINGERPRINT_PLATFORM` | `windows` | Spoofed platform (`windows`, `macos`, `linux`) |
+| `ABP_FINGERPRINT_BRAND` | `Chrome` | Browser brand (`Chrome`, `Edge`, `Opera`, `Vivaldi`) |
+| `ABP_FINGERPRINT_HARDWARE_CONCURRENCY` | `8` | Native fp-chromium hardware concurrency override |
+| `ABP_TIMEZONE` | `America/New_York` | Spoofed timezone (IANA identifier) |
+| `ABP_DISABLE_SPOOFING` | *(none)* | Comma-separated fp-chromium spoofing categories to disable (`144+`) |
+| `ABP_WINDOW_SIZE` | `1280,800` | ABP viewport/window size (runtime only, not fingerprint spoofing) |
+| `ABP_PROXY_SERVER` | *(none)* | Proxy URL (e.g. `socks5://user:pass@host:port`) |
+| `ABP_PROXY_BYPASS` | *(none)* | Semicolon-separated hosts to bypass proxy |
+| `ABP_GOST_PUBLIC_PORT` | `1080` | Public proxy port for CapSolver |
 
 ## Using the API
 
@@ -188,196 +176,35 @@ curl -s -X POST "$ABP/api/v1/tabs/{id}/screenshot" \
 # Get page text (full body or CSS selector)
 curl -s -X POST "$ABP/api/v1/tabs/{id}/text" \
     -H "Content-Type: application/json" -d '{}'
-curl -s -X POST "$ABP/api/v1/tabs/{id}/text" \
-    -H "Content-Type: application/json" \
-    -d '{"selector": "#firstHeading"}'
 
-# Scroll (requires x/y position + scrolls array with delta_px and direction)
+# Scroll
 curl -s -X POST "$ABP/api/v1/tabs/{id}/scroll" \
     -H "Content-Type: application/json" \
     -d '{"x":640,"y":400,"scrolls":[{"delta_px":300,"direction":"y"}]}'
 
-# Click at coordinates
-curl -s -X POST "$ABP/api/v1/tabs/{id}/click" \
-    -H "Content-Type: application/json" \
-    -d '{"x": 300, "y": 200}'
+# Click / Type / Keyboard
+curl -s -X POST "$ABP/api/v1/tabs/{id}/click" -H "Content-Type: application/json" -d '{"x": 300, "y": 200}'
+curl -s -X POST "$ABP/api/v1/tabs/{id}/type" -H "Content-Type: application/json" -d '{"text": "hello"}'
+curl -s -X POST "$ABP/api/v1/tabs/{id}/keyboard/press" -H "Content-Type: application/json" -d '{"key": "Enter"}'
 
-# Type text (click input first to focus)
-curl -s -X POST "$ABP/api/v1/tabs/{id}/type" \
-    -H "Content-Type: application/json" \
-    -d '{"text": "hello world"}'
-
-# Keyboard press
-curl -s -X POST "$ABP/api/v1/tabs/{id}/keyboard/press" \
-    -H "Content-Type: application/json" \
-    -d '{"key": "Enter"}'
-
-# Back / Forward / Reload
+# Navigation
 curl -s -X POST "$ABP/api/v1/tabs/{id}/back" -H "Content-Type: application/json" -d '{}'
 curl -s -X POST "$ABP/api/v1/tabs/{id}/forward" -H "Content-Type: application/json" -d '{}'
 curl -s -X POST "$ABP/api/v1/tabs/{id}/reload" -H "Content-Type: application/json" -d '{}'
 
-# Wait (pause for specified ms)
-curl -s -X POST "$ABP/api/v1/tabs/{id}/wait" \
-    -H "Content-Type: application/json" -d '{"ms": 1000}'
+# Wait
+curl -s -X POST "$ABP/api/v1/tabs/{id}/wait" -H "Content-Type: application/json" -d '{"ms": 1000}'
 
 # Create / Close tabs
-curl -s -X POST "$ABP/api/v1/tabs" \
-    -H "Content-Type: application/json" -d '{"url":"about:blank"}'
+curl -s -X POST "$ABP/api/v1/tabs" -H "Content-Type: application/json" -d '{"url":"about:blank"}'
 curl -s -X DELETE "$ABP/api/v1/tabs/{id}"
 ```
 
 Full API docs: https://github.com/theredsix/agent-browser-protocol
 
-## Stealth Configuration (Environment Variables)
-
-| Variable | Default | Description |
-|---|---|---|
-| `ABP_FINGERPRINT_SEED` | random | Deterministic seed for all fingerprint values |
-| `ABP_FINGERPRINT_PLATFORM` | `windows` | Spoofed platform (`windows`, `macos`, `linux`) |
-| `ABP_TIMEZONE` | `America/New_York` | Spoofed timezone (IANA identifier) |
-| `ABP_PROXY_SERVER` | (none) | Proxy URL (e.g. `socks5://user:pass@host:port`). Routes all browser traffic through proxy. |
-| `ABP_PROXY_BYPASS` | (none) | Semicolon-separated list of hosts to bypass proxy (e.g. `localhost;*.internal`) |
-| `ABP_PORT` | `15678` | External API port |
-
-## Updating When ABP Releases a New Version
-
-ABP is a Chromium fork that releases roughly weekly. Our stealth patches touch different files than ABP's core code, so updates are straightforward:
-
-1. **Rent a Hetzner CCX33** (~€0.30)
-2. **Pull the new ABP source:**
-   ```bash
-   cd /root/build && gclient sync --no-history
-   ```
-3. **Revert old edits and re-apply:**
-   ```bash
-   cd /root/build/src && git checkout -- .
-   bash /root/abp-unikraft/scripts/apply-stealth-edits.sh /root/build/src
-   ```
-4. **Incremental rebuild** (only changed files recompile — minutes):
-   ```bash
-   autoninja -C out/Release chrome
-   ```
-5. **Package, upload, deploy** (same as above)
-6. **Delete the server**
-
-Our patches target stable web standard APIs (WebGL, Canvas, Navigator) that rarely change in Chromium, so they should apply cleanly across versions.
-
 ## Known Limitations
 
-- **Datacenter IP** — Google, Cloudflare, DuckDuckGo block based on the KraftCloud Frankfurt IP. Residential proxy required for these sites.
-- **WebGL reports SwiftShader** — The C++ spoofing patch needs its insertion point adjusted for ABP's specific Chromium version. Works for most detection tests but advanced fingerprinters can still see SwiftShader.
-- **`navigator.platform` shows Linux** — Same insertion point issue. Fixable on next build.
+- **Datacenter IP** — Google, Cloudflare, DuckDuckGo block KraftCloud IPs. Residential proxy required.
 - **No GPU** — Running in a unikernel with no GPU. SwiftShader provides software rendering.
-- **4GB memory limit** — KraftCloud free tier cap. Heavy pages may be constrained.
-
-## Verified Test Results
-
-All tests performed on the live KraftCloud deployment (fra metro, 4GB, stealth-v0.1.0 binary).
-
-### Scale-to-Zero Performance (5 trials)
-
-The instance was confirmed in `standby` state before each request.
-Start count incremented on every request, confirming full power-down/resume cycle.
-
-| Trial | Unikraft Boot | Total Round-Trip | Instance State Before |
-|---|---|---|---|
-| 1 | 9.36ms | 205ms | standby |
-| 2 | 9.51ms | 194ms | standby |
-| 3 | 9.57ms | 195ms | standby |
-| 4 | 10.17ms | 193ms | standby |
-| 5 | 10.32ms | 197ms | standby |
-
-Round-trip includes network latency to Frankfurt + TLS handshake + Unikraft wake + ABP response.
-
-### Agent Action Cycle (wake from standby → action → sleep between each)
-
-Each action was sent after waiting for the instance to scale to zero (confirmed `standby` state).
-
-| Action | Total (wake+action) | ABP Internal Profiling | Unikraft Boot |
-|---|---|---|---|
-| Get tabs | 201ms | n/a | 8.60ms |
-| Navigate to example.com | 960ms | 716ms | 9.85ms |
-| Execute JavaScript | 899ms | 639ms | 9.98ms |
-| Take screenshot | 833ms | 588ms | 9.69ms |
-| Navigate to httpbin.org | 3,226ms | 2,970ms (network fetch) | 9.41ms |
-
-### State Persistence Across Scale-to-Zero
-
-Verified after multiple standby/resume cycles:
-- Browser remembers last URL (`https://httpbin.org/headers`)
-- Virtual time stays frozen (`paused: True`, `base_ticks_ms: 60837.058`)
-- Tab IDs survive scale-to-zero (same ID across cycles)
-- Start count reached 17 across all tests, confirming each request triggered a full resume
-
-### Bot Detection Test (bot.sannysoft.com)
-
-Full results from the stealth-v0.1.0 binary:
-
-| Test | Result |
-|---|---|
-| User Agent | `Chrome/146.0.0.0` (no "Headless") — **passed** |
-| WebDriver (New) | `missing` — **passed** |
-| WebDriver Advanced | **passed** |
-| Chrome Object | `present` — **passed** |
-| Permissions | `prompt` — **passed** |
-| Plugins Length | `5` — **passed** |
-| Plugins Type | `PluginArray` — **passed** |
-| Languages | `en-US` — **passed** |
-| Broken Image | `16x16` — **passed** |
-| PHANTOM_UA | **ok** |
-| PHANTOM_PROPERTIES | **ok** |
-| PHANTOM_ETSL | **ok** |
-| PHANTOM_LANGUAGE | **ok** |
-| PHANTOM_WEBSOCKET | **ok** |
-| MQ_SCREEN | **ok** |
-| PHANTOM_OVERFLOW | **ok** |
-| PHANTOM_WINDOW_HEIGHT | **ok** |
-| HEADCHR_UA | **ok** |
-| HEADCHR_CHROME_OBJ | **ok** |
-| HEADCHR_PERMISSIONS | **ok** |
-| HEADCHR_PLUGINS | **ok** |
-| HEADCHR_IFRAME | **ok** |
-| CHR_DEBUG_TOOLS | **ok** |
-| SELENIUM_DRIVER | **ok** |
-| CHR_BATTERY | **ok** |
-| CHR_MEMORY | **ok** |
-| TRANSPARENT_PIXEL | **ok** |
-| SEQUENTUM | **ok** |
-| VIDEO_CODECS | WARN (h264 — expected, Chromium lacks proprietary codecs) |
-
-### Stealth Signal Verification
-
-Measured on `about:blank` via ABP's `/tabs/{id}/execute` endpoint:
-
-| Signal | Value | Expected (real Chrome) | Match? |
-|---|---|---|---|
-| `navigator.webdriver` | `false` | `false` | Yes |
-| `navigator.userAgent` | `Mozilla/5.0 (X11; Linux x86_64) ... Chrome/146.0.0.0 Safari/537.36` | No "Headless" | Yes |
-| `navigator.plugins.length` | `5` | `5` | Yes |
-| `typeof window.chrome` | `object` | `object` | Yes |
-| `window.chrome` keys | `loadTimes,csi,app` | `loadTimes,csi,app` | Yes |
-| `navigator.languages` | `["en-US"]` | `["en-US"]` | Yes |
-| `window.outerWidth x outerHeight` | `1280x800` | nonzero | Yes |
-| `navigator.platform` | `Linux x86_64` | `Win32` (if spoofing Windows) | No* |
-| WebGL vendor | `Google Inc. (Google)` | Real GPU vendor | No* |
-| WebGL renderer | `SwiftShader` | Real GPU name | No* |
-
-*These patches are written but need insertion point adjustment for ABP's Chromium version. Fixable on next build.
-
-### Scraping Tests
-
-| Site | Anti-Bot | Status | Data Extracted |
-|---|---|---|---|
-| **Wikipedia** | None | **Works** | Full article content — Cascais municipality history, demographics, geography (3000+ chars) |
-| **Hacker News** | None | **Works** | Top 10 headlines with links extracted via `.titleline a` selector |
-| **GitHub Trending** | Rate limiting | **Works** | 9 trending repos with names (e.g., `bytedance/deer-flow`, `twentyhq/twenty`) |
-| **Reuters** | Moderate | **Works** | 14 tech news headlines with dates extracted from article elements |
-| **Zillow** | PerimeterX/HUMAN | **Works** | Full property data: Zestimate ($143,500), beds (--), baths (1), sqft (1,152), year built (1959), lot size, estimated rent ($1,647/mo) |
-| **Amazon** | Advanced | **Partial** | Product title, 4.6-star rating, full description. Price not shown — geo-restriction (Frankfurt IP = "cannot ship to Germany"), not bot detection |
-| **Reddit** (old.reddit) | Moderate | **Works** | Page loads with full subreddit listing, navigation, sidebar. Post selectors need tuning for old.reddit DOM structure |
-| **Google Maps** | IP-based | **Blocked** | Consent wall with no interactive buttons — Google serves degraded page to datacenter IPs regardless of browser fingerprint |
-| **DuckDuckGo** | IP-based | **Blocked** | Bot CAPTCHA — datacenter IP detection |
-| **Bing** | IP-based | **Blocked** | CAPTCHA after initial query — datacenter IP |
-| **bot.sannysoft.com** | Detection test | **All pass** | Every test passes (see table above) |
-| **TimeOut Lisbon** | Cloudflare | **Partial** | Page loaded but specific bakery URL was 404. General Lisbon food/restaurant content extracted successfully |
+- **4GB memory limit** — KraftCloud quota. Heavy pages may be constrained.
+- **Video codecs** — h264 not available (Chromium lacks proprietary codecs in open-source builds).

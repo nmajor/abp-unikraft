@@ -2,6 +2,13 @@
 # Runs INSIDE the Docker container. Do not run directly.
 set -euo pipefail
 
+if [ "${ALLOW_LEGACY_ABP_STEALTH:-0}" != "1" ]; then
+    echo "ERROR: scripts/docker-build-inner.sh is a legacy pre-fingerprint-chromium build path."
+    echo "Use scripts/build-on-fp-chromium.sh for all active builds."
+    echo "Set ALLOW_LEGACY_ABP_STEALTH=1 only for forensic/reference work."
+    exit 1
+fi
+
 NPROC="${NPROC:-4}"
 WORKSPACE="/build"
 

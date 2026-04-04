@@ -1,0 +1,12 @@
+# Stealth-extra patches: surfaces NOT covered by fingerprint-chromium.
+# Applied AFTER fingerprint-chromium's own patches.
+# These use --fingerprint (fp-chromium's master switch) for activation.
+#
+# Companion script: scripts/apply-stealth-extra-edits.sh
+# (sed/python based — more robust across Chromium versions)
+012-window-outer-dimensions.patch
+016-permissions-consistency.patch
+017-remove-automation-flags.patch
+018-pointer-media-query-fine.patch
+020-device-memory-spoof.patch
+021-screen-properties-spoof.patch

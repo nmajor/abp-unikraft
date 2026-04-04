@@ -6,6 +6,13 @@
 # Usage: ./apply-stealth-edits.sh /path/to/src
 set -euo pipefail
 
+if [ "${ALLOW_LEGACY_ABP_STEALTH:-0}" != "1" ]; then
+    echo "ERROR: scripts/apply-stealth-edits.sh applies the retired legacy ABP stealth edit stack."
+    echo "Use scripts/apply-stealth-extra-edits.sh with the fp-chromium build path instead."
+    echo "Set ALLOW_LEGACY_ABP_STEALTH=1 only for forensic/reference work."
+    exit 1
+fi
+
 SRC="$1"
 
 if [ ! -d "${SRC}/chrome/browser/abp" ]; then

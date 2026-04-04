@@ -6,9 +6,14 @@ EXTERNAL_PORT="${ABP_PORT:-15678}"
 ABP_BINARY="/opt/abp/abp-chrome/abp"
 
 # Stealth configuration — override via environment variables.
+# These map to fingerprint-chromium's native flags.
 ABP_FINGERPRINT_SEED="${ABP_FINGERPRINT_SEED:-$RANDOM}"
 ABP_FINGERPRINT_PLATFORM="${ABP_FINGERPRINT_PLATFORM:-windows}"
 ABP_TIMEZONE="${ABP_TIMEZONE:-America/New_York}"
+ABP_FINGERPRINT_BRAND="${ABP_FINGERPRINT_BRAND:-Chrome}"
+ABP_FINGERPRINT_HARDWARE_CONCURRENCY="${ABP_FINGERPRINT_HARDWARE_CONCURRENCY:-8}"
+ABP_DISABLE_SPOOFING="${ABP_DISABLE_SPOOFING:-}"
+ABP_WINDOW_SIZE="${ABP_WINDOW_SIZE:-1280,800}"
 
 # Proxy configuration — set ABP_PROXY_SERVER to route all traffic through a proxy.
 # Examples:
@@ -64,7 +69,13 @@ fi
 echo "Starting ABP Stealth on internal port ${ABP_INTERNAL_PORT}..."
 echo "  Fingerprint seed: ${ABP_FINGERPRINT_SEED}"
 echo "  Platform: ${ABP_FINGERPRINT_PLATFORM}"
+echo "  Brand: ${ABP_FINGERPRINT_BRAND}"
+echo "  Hardware concurrency: ${ABP_FINGERPRINT_HARDWARE_CONCURRENCY}"
 echo "  Timezone: ${ABP_TIMEZONE}"
+echo "  Window size: ${ABP_WINDOW_SIZE}"
+if [ -n "${ABP_DISABLE_SPOOFING}" ]; then
+    echo "  Disable spoofing: ${ABP_DISABLE_SPOOFING}"
+fi
 if [ -n "${ABP_PROXY_SERVER:-}" ]; then
     echo "  Proxy: ${ABP_PROXY_SERVER}"
 fi
@@ -73,35 +84,37 @@ echo "Starting proxy on 0.0.0.0:${EXTERNAL_PORT} -> 127.0.0.1:${ABP_INTERNAL_POR
 # Start socat proxy (ABP binds to 127.0.0.1 only)
 socat TCP-LISTEN:${EXTERNAL_PORT},fork,reuseaddr,bind=0.0.0.0 TCP:127.0.0.1:${ABP_INTERNAL_PORT} &
 
-# Start ABP with stealth flags.
-# Note: --disable-default-apps, --disable-extensions are intentionally REMOVED
-# as they are automation telltale signals. The --abp-fingerprint flag triggers
-# the C++ stealth patches to activate.
-# Build a platform-correct UA string since the C++ patch may not be active.
-ABP_CHROME_VERSION="${ABP_CHROME_VERSION:-129}"
-if [ "${ABP_FINGERPRINT_PLATFORM}" = "windows" ]; then
-    UA_OVERRIDE="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${ABP_CHROME_VERSION}.0.0.0 Safari/537.36"
-elif [ "${ABP_FINGERPRINT_PLATFORM}" = "macos" ]; then
-    UA_OVERRIDE="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${ABP_CHROME_VERSION}.0.0.0 Safari/537.36"
-else
-    UA_OVERRIDE=""
+# Start ABP with fingerprint-chromium stealth flags.
+#
+# fingerprint-chromium handles: canvas, WebGL, audio, fonts, Client Hints,
+# CDP detection, navigator.webdriver, GPU vendor/renderer, plugins, UA string,
+# hardware concurrency, client rects, measureText, timezone.
+#
+# stealth-extra edits handle: pointer/hover media queries, screen properties,
+# window.outerWidth/Height, navigator.deviceMemory, automation flag removal.
+FP_ARGS=(
+    --fingerprint="${ABP_FINGERPRINT_SEED}"
+    --fingerprint-platform="${ABP_FINGERPRINT_PLATFORM}"
+    --fingerprint-brand="${ABP_FINGERPRINT_BRAND}"
+    --fingerprint-hardware-concurrency="${ABP_FINGERPRINT_HARDWARE_CONCURRENCY}"
+    --timezone="${ABP_TIMEZONE}"
+)
+
+if [ -n "${ABP_DISABLE_SPOOFING}" ]; then
+    FP_ARGS+=(--disable-spoofing="${ABP_DISABLE_SPOOFING}")
 fi
 
 exec "${ABP_BINARY}" \
     --abp-port="${ABP_INTERNAL_PORT}" \
-    --abp-fingerprint="${ABP_FINGERPRINT_SEED}" \
-    --abp-fingerprint-platform="${ABP_FINGERPRINT_PLATFORM}" \
-    --abp-timezone="${ABP_TIMEZONE}" \
-    ${UA_OVERRIDE:+--user-agent="${UA_OVERRIDE}"} \
-    --disable-features=UserAgentClientHint \
+    "${FP_ARGS[@]}" \
     --headless=new \
     --no-sandbox \
     --disable-dev-shm-usage \
-    --disable-blink-features=AutomationControlled \
+    --disable-non-proxied-udp \
     --use-mock-keychain \
     --user-data-dir=/tmp/abp-data \
     --abp-session-dir=/tmp/abp-sessions \
-    --abp-window-size=1280,800 \
+    --abp-window-size="${ABP_WINDOW_SIZE}" \
     --disable-sync \
     --no-first-run \
     --lang=en-US \

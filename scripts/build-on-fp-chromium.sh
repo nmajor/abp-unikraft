@@ -1,0 +1,390 @@
+#!/bin/bash
+# Build ABP Stealth on fingerprint-chromium base.
+#
+# This replaces build-on-hetzner.sh with a fingerprint-chromium base instead
+# of raw ABP Chromium. fingerprint-chromium provides ~20 stealth patches
+# (canvas, WebGL, audio, fonts, Client Hints, CDP, UA, GPU, etc.) so we
+# only need to add:
+#   1. ABP protocol code (REST API, session management)
+#   2. Stealth-extra patches (6 surfaces fp-chromium doesn't cover)
+#   3. Feature edits (bandwidth metering, full page screenshot)
+#
+# Prerequisites:
+#   - Fresh Ubuntu 22.04 server (Hetzner CCX33 recommended)
+#   - ~50GB disk, 16+ cores, 64GB+ RAM
+#   - GitHub CLI authenticated (gh auth login)
+#
+# Usage:
+#   curl -sL https://raw.githubusercontent.com/nmajor/abp-unikraft/main/scripts/build-on-fp-chromium.sh | bash
+#
+# Cost: CCX33 for ~4hrs = ~€1.20. CCX63 for ~2hrs = ~€0.92.
+set -euo pipefail
+
+REPO="nmajor/abp-unikraft"
+BRANCH="main"
+ABP_REPO_REF="${ABP_REPO_REF:-${BRANCH}}"
+ABP_REPO_SHA="${ABP_REPO_SHA:-}"
+BUILD_DIR="/root/build"
+NPROC=$(nproc 2>/dev/null || grep -c ^processor /proc/cpuinfo 2>/dev/null || echo 4)
+
+# fingerprint-chromium version to build against.
+# Keep this pinned to the latest source release we've validated in this repo.
+# Check upstream releases before changing:
+#   https://github.com/adryfish/fingerprint-chromium/releases
+FP_CHROMIUM_TAG="${FP_CHROMIUM_TAG:-144.0.7559.132}"
+
+# ABP source — the upstream Agent Browser Protocol repo.
+ABP_REPO="https://github.com/theredsix/agent-browser-protocol.git"
+ABP_BRANCH="${ABP_BRANCH:-dev}"
+
+echo "============================================================"
+echo "  ABP Stealth Build (fingerprint-chromium base)"
+echo "  $(date)"
+echo "  Cores: ${NPROC}  RAM: $(free -h | awk '/Mem:/{print $2}')"
+echo "  Base: fingerprint-chromium ${FP_CHROMIUM_TAG}"
+echo "============================================================"
+
+# -------------------------------------------------------------------
+# Step 1: System dependencies
+# -------------------------------------------------------------------
+echo ""
+echo "==> [1/9] Installing system dependencies..."
+apt-get update
+apt-get install -y \
+    build-essential clang cmake curl git gperf lld \
+    libcups2-dev libdrm-dev libgbm-dev libgtk-3-dev libkrb5-dev \
+    libnss3-dev libpango1.0-dev libpulse-dev libudev-dev libva-dev \
+    libxcomposite-dev libxdamage-dev libxrandr-dev libxshmfence-dev \
+    lsb-release ninja-build pkg-config python3 python3-pip \
+    sudo wget xz-utils file
+
+# Install gh CLI
+if ! command -v gh &>/dev/null; then
+    curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+        | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+        > /etc/apt/sources.list.d/github-cli.list
+    apt-get update && apt-get install -y gh
+fi
+echo "  Done."
+
+# -------------------------------------------------------------------
+# Step 2: Authenticate GitHub
+# -------------------------------------------------------------------
+echo ""
+echo "==> [2/9] GitHub authentication"
+if [ -n "${GH_TOKEN:-}" ]; then
+    echo "  Using GH_TOKEN from environment."
+elif ! gh auth status &>/dev/null; then
+    echo "  Please authenticate with GitHub to upload the release."
+    echo "  Run: gh auth login"
+    echo "  Or set GH_TOKEN env var with a personal access token."
+    gh auth login
+fi
+echo "  Authenticated as: $(gh api user -q .login)"
+
+# -------------------------------------------------------------------
+# Step 3: Clone our patches repo
+# -------------------------------------------------------------------
+echo ""
+echo "==> [3/9] Cloning ABP-unikraft patch repo..."
+PATCH_REPO="/root/abp-unikraft"
+if [ ! -d "${PATCH_REPO}" ]; then
+    gh repo clone "${REPO}" "${PATCH_REPO}" -- --branch "${ABP_REPO_REF}"
+else
+    cd "${PATCH_REPO}"
+    git fetch origin
+fi
+cd "${PATCH_REPO}"
+if [ -n "${ABP_REPO_SHA}" ]; then
+    git checkout --detach "${ABP_REPO_SHA}"
+else
+    git checkout "${ABP_REPO_REF}"
+    git reset --hard "origin/${ABP_REPO_REF}"
+fi
+echo "  Using ABP-unikraft commit: $(git rev-parse HEAD)"
+echo "  Patches at: ${PATCH_REPO}"
+
+# -------------------------------------------------------------------
+# Step 4: Clone fingerprint-chromium
+# -------------------------------------------------------------------
+echo ""
+echo "==> [4/9] Fetching fingerprint-chromium source (tag: ${FP_CHROMIUM_TAG})..."
+
+FP_DIR="/root/fingerprint-chromium"
+if [ ! -d "${FP_DIR}" ]; then
+    git clone --depth 1 --branch "${FP_CHROMIUM_TAG}" \
+        https://github.com/adryfish/fingerprint-chromium.git "${FP_DIR}"
+else
+    echo "  Already exists, updating..."
+    cd "${FP_DIR}" && git fetch && git checkout "${FP_CHROMIUM_TAG}"
+fi
+echo "  fingerprint-chromium at: ${FP_DIR}"
+
+# -------------------------------------------------------------------
+# Step 5: Download + patch Chromium source via fp-chromium build system
+# -------------------------------------------------------------------
+echo ""
+echo "==> [5/9] Downloading and patching Chromium source..."
+echo "  This downloads ~15GB of Chromium source. Takes 15-30 min."
+
+mkdir -p "${BUILD_DIR}"
+cd "${FP_DIR}"
+
+# Download Chromium source tarball
+mkdir -p build/download_cache
+python3 utils/downloads.py retrieve -c build/download_cache -i downloads.ini
+python3 utils/downloads.py unpack -c build/download_cache -i downloads.ini -- "${BUILD_DIR}/src"
+
+# Prune Google binaries
+python3 utils/prune_binaries.py "${BUILD_DIR}/src" pruning.list
+
+# Apply all patches (ungoogled-chromium + fingerprint-chromium)
+python3 utils/patches.py apply "${BUILD_DIR}/src" patches
+
+# Domain substitution
+python3 utils/domain_substitution.py apply \
+    -r domain_regex.list \
+    -f domain_substitution.list \
+    -c build/domsubcache.tar.gz \
+    "${BUILD_DIR}/src"
+
+SRC_DIR="${BUILD_DIR}/src"
+
+echo "  Chromium source patched with fingerprint-chromium stealth patches."
+
+# Current fp-chromium releases can carry source/GN changes that need matching
+# GN/export fixes before a component build will link successfully.
+python3 - "${SRC_DIR}" <<'PY'
+import pathlib
+import sys
+
+src_dir = pathlib.Path(sys.argv[1])
+flags_state = src_dir / "components/webui/flags/flags_state.cc"
+text = flags_state.read_text()
+
+text = text.replace('#include "chrome/browser/unexpire_flags.h"\n', "")
+text = text.replace(
+    """    if (skip_feature_entry.Run(entry)) {
+      if (flags::IsFlagExpired(flags_storage, entry.internal_name)) {
+        desc.insert(0, "!!! NOTE: THIS FLAG IS EXPIRED AND MAY STOP FUNCTIONING OR BE REMOVED SOON !!! ");
+      } else {
+        continue;
+      }
+    }
+""",
+    """    if (skip_feature_entry.Run(entry)) {
+      if (delegate_ && delegate_->ShouldExcludeFlag(flags_storage, entry)) {
+        desc.insert(0, "!!! NOTE: THIS FLAG IS EXPIRED AND MAY STOP FUNCTIONING OR BE REMOVED SOON !!! ");
+      } else {
+        continue;
+      }
+    }
+""",
+)
+text = text.replace(
+    """    if (delegate_ && delegate_->ShouldExcludeFlag(storage, entry)) {
+      if (!flags::IsFlagExpired(storage, entry.internal_name)) {
+        continue;
+      }
+    }
+""",
+    """    if (delegate_ && delegate_->ShouldExcludeFlag(storage, entry)) {
+      continue;
+    }
+""",
+)
+
+flags_state.write_text(text)
+PY
+perl -0pi -e 's|deps = \[\n    "//base",|deps = [\n    "//base",\n    "//components/ungoogled:ungoogled_switches",|s' \
+    "${SRC_DIR}/third_party/blink/common/BUILD.gn"
+perl -0pi -e 's|void UpdateUserAgentMetadataFingerprint\(UserAgentMetadata\* metadata\);|BLINK_COMMON_EXPORT void UpdateUserAgentMetadataFingerprint(UserAgentMetadata* metadata);|g; s|std::string GetUserAgentFingerprintBrandInfo\(\);|BLINK_COMMON_EXPORT std::string GetUserAgentFingerprintBrandInfo();|g' \
+    "${SRC_DIR}/third_party/blink/public/common/user_agent/user_agent_metadata.h"
+perl -0pi -e 's|deps = \[\n    ":generate_eventhandler_names",\n    ":make_deprecation_info",\n    "//base",|deps = [\n    ":generate_eventhandler_names",\n    ":make_deprecation_info",\n    "//base",\n    "//components/ungoogled:ungoogled_switches",|s' \
+    "${SRC_DIR}/third_party/blink/renderer/core/BUILD.gn"
+perl -0pi -e 's|deps = \[\n    "//device/vr/buildflags",|deps = [\n    "//device/vr/buildflags",\n    "//components/ungoogled:ungoogled_switches",|s' \
+    "${SRC_DIR}/third_party/blink/renderer/modules/webgl/BUILD.gn"
+perl -0pi -e 's|deps = \[\n    ":embedder_support",|deps = [\n    ":embedder_support",\n    "//components/ungoogled:ungoogled_switches",|s' \
+    "${SRC_DIR}/components/embedder_support/BUILD.gn"
+
+# -------------------------------------------------------------------
+# Step 6: Install Chromium build dependencies
+# -------------------------------------------------------------------
+echo ""
+echo "==> [6/9] Installing Chromium build dependencies..."
+cd "${SRC_DIR}"
+if [ -f "build/install-build-deps.sh" ]; then
+    sudo bash build/install-build-deps.sh --no-prompt --no-chromeos-fonts --no-arm --no-nacl || true
+fi
+
+# -------------------------------------------------------------------
+# Step 7: Overlay ABP protocol code
+# -------------------------------------------------------------------
+echo ""
+echo "==> [7/9] Overlaying ABP protocol + stealth-extra patches..."
+
+# 7a: Fetch ABP source to extract the protocol code.
+# We only need chrome/browser/abp/ and its BUILD.gn integration.
+ABP_EXTRACT="/root/abp-source"
+if [ ! -d "${ABP_EXTRACT}" ]; then
+    echo "  Cloning ABP source (sparse, protocol code only)..."
+    git clone --depth 1 --branch "${ABP_BRANCH}" --no-checkout "${ABP_REPO}" "${ABP_EXTRACT}"
+    cd "${ABP_EXTRACT}"
+    git sparse-checkout init --cone
+    git sparse-checkout set chrome/browser/abp
+    git checkout
+else
+    echo "  ABP source already extracted."
+fi
+
+# 7b: Copy ABP protocol code into the fingerprint-chromium tree.
+echo "  Copying ABP protocol code..."
+if [ -d "${ABP_EXTRACT}/chrome/browser/abp" ]; then
+    cp -r "${ABP_EXTRACT}/chrome/browser/abp" "${SRC_DIR}/chrome/browser/"
+    echo "  OK — ABP protocol code copied to ${SRC_DIR}/chrome/browser/abp/"
+else
+    echo "  ERROR: ABP protocol code not found at ${ABP_EXTRACT}/chrome/browser/abp"
+    echo "  Falling back to full clone..."
+    cd "${ABP_EXTRACT}" && git sparse-checkout disable && git checkout
+    cp -r "${ABP_EXTRACT}/chrome/browser/abp" "${SRC_DIR}/chrome/browser/"
+fi
+
+# 7b.1: Verify the overlaid ABP source does not reintroduce legacy stealth
+# switch namespaces or conflicting launch flags.
+echo "  Verifying ABP overlay contract..."
+chmod +x "${PATCH_REPO}/scripts/verify-abp-overlay-contract.sh"
+bash "${PATCH_REPO}/scripts/verify-abp-overlay-contract.sh" "${SRC_DIR}"
+
+# 7c: Apply stealth-extra edits (surfaces fingerprint-chromium doesn't cover).
+echo "  Applying stealth-extra edits..."
+chmod +x "${PATCH_REPO}/scripts/apply-stealth-extra-edits.sh"
+bash "${PATCH_REPO}/scripts/apply-stealth-extra-edits.sh" "${SRC_DIR}"
+
+# 7d: Apply feature edits (bandwidth metering + full page screenshot).
+echo "  Applying feature edits..."
+chmod +x "${PATCH_REPO}/scripts/apply-feature-edits.sh"
+bash "${PATCH_REPO}/scripts/apply-feature-edits.sh" "${SRC_DIR}"
+
+# Re-run contract verification after our edits.
+echo "  Re-verifying ABP overlay contract..."
+bash "${PATCH_REPO}/scripts/verify-abp-overlay-contract.sh" "${SRC_DIR}"
+
+# -------------------------------------------------------------------
+# Step 8: Configure + Build
+# -------------------------------------------------------------------
+echo ""
+echo "==> [8/9] Configuring and building..."
+echo "  Build started at: $(date)"
+
+RELEASE_DIR="${SRC_DIR}/out/Release"
+mkdir -p "${RELEASE_DIR}"
+
+# Use fingerprint-chromium's flags.gn as base, with our overrides.
+if [ -f "${FP_DIR}/flags.gn" ]; then
+    cp "${FP_DIR}/flags.gn" "${RELEASE_DIR}/args.gn"
+else
+    cat > "${RELEASE_DIR}/args.gn" << 'GNARGS'
+is_debug = false
+is_component_build = false
+symbol_level = 0
+is_official_build = true
+chrome_pgo_phase = 0
+target_cpu = "x64"
+enable_nacl = false
+blink_symbol_level = 0
+GNARGS
+fi
+
+# Bootstrap GN if needed (no depot_tools).
+if [ ! -f "${SRC_DIR}/out/Release/gn" ]; then
+    echo "  Bootstrapping GN..."
+    cd "${SRC_DIR}"
+    python3 tools/gn/bootstrap/bootstrap.py --skip-generate-buildfiles -j "${NPROC}" -o out/Release/gn
+fi
+
+cd "${SRC_DIR}"
+./out/Release/gn gen "${RELEASE_DIR}" --fail-on-unused-args
+
+echo "  Building with ${NPROC} cores..."
+ninja -C "${RELEASE_DIR}" -j "${NPROC}" chrome chromedriver
+
+echo "  Build finished at: $(date)"
+
+# -------------------------------------------------------------------
+# Step 9: Package + Upload
+# -------------------------------------------------------------------
+echo ""
+echo "==> [9/9] Packaging and uploading..."
+
+PKG_DIR=$(mktemp -d)
+ABP_OUT="${PKG_DIR}/abp-chrome"
+mkdir -p "${ABP_OUT}"
+cd "${RELEASE_DIR}"
+
+# Copy binary and required files.
+for f in chrome chromedriver chrome_crashpad_handler vk_swiftshader_icd.json \
+         icudtl.dat v8_context_snapshot.bin snapshot_blob.bin; do
+    [ -f "$f" ] && cp -a "$f" "${ABP_OUT}/"
+done
+cp -a *.so* "${ABP_OUT}/" 2>/dev/null || true
+cp -a *.pak "${ABP_OUT}/" 2>/dev/null || true
+cp -ra locales "${ABP_OUT}/" 2>/dev/null || true
+cp -ra lib "${ABP_OUT}/" 2>/dev/null || true
+
+# Rename chrome → abp for ABP compatibility.
+[ -f "${ABP_OUT}/chrome" ] && [ ! -f "${ABP_OUT}/abp" ] && mv "${ABP_OUT}/chrome" "${ABP_OUT}/abp"
+[ -f "${ABP_OUT}/abp" ] && chmod +x "${ABP_OUT}/abp"
+
+if [ -x "${ABP_OUT}/abp" ]; then
+    echo "  Browser version: $("${ABP_OUT}/abp" --version 2>/dev/null || echo 'unavailable')"
+fi
+if [ -x "${ABP_OUT}/chromedriver" ]; then
+    echo "  Chromedriver version: $("${ABP_OUT}/chromedriver" --version 2>/dev/null || echo 'unavailable')"
+fi
+
+OUTPUT="/root/abp-stealth-linux-x64.tar.gz"
+cd "${PKG_DIR}"
+tar -czf "${OUTPUT}" abp-chrome/
+rm -rf "${PKG_DIR}"
+
+echo "  Package: ${OUTPUT}"
+echo "  Size: $(du -h "${OUTPUT}" | cut -f1)"
+
+# Upload to GitHub Release.
+VERSION="stealth-fp-$(date +%Y%m%d-%H%M%S)"
+
+gh release create "${VERSION}" \
+    --repo "${REPO}" \
+    --title "ABP Stealth Build ${VERSION} (fp-chromium ${FP_CHROMIUM_TAG})" \
+    --notes "ABP Chromium built on fingerprint-chromium ${FP_CHROMIUM_TAG}.
+Base: fingerprint-chromium (ungoogled-chromium + stealth patches)
+Extra: ABP protocol + stealth-extra patches + feature edits
+Stealth patches from upstream: canvas, WebGL, audio, fonts, Client Hints, CDP, UA, GPU
+Stealth-extra patches (ours): pointer/hover, screen, window dimensions, deviceMemory, automation flags
+Runtime contract: native fingerprint-chromium switches only; no legacy abp-fingerprint remapping" \
+    "${OUTPUT}#abp-stealth-linux-x64.tar.gz"
+
+RELEASE_URL="https://github.com/${REPO}/releases/tag/${VERSION}"
+
+echo ""
+echo "============================================================"
+echo "  ALL DONE!"
+echo "  $(date)"
+echo "============================================================"
+echo ""
+echo "  Release: ${RELEASE_URL}"
+echo "  Base: fingerprint-chromium ${FP_CHROMIUM_TAG}"
+echo "  Binary: abp-stealth-linux-x64.tar.gz"
+echo ""
+echo "  Next steps:"
+echo "    1. Update Dockerfile ABP_STEALTH_VERSION to: ${VERSION}"
+echo "    2. Push to trigger KraftCloud image rebuild"
+echo "    3. DELETE THIS SERVER to stop billing"
+echo "============================================================"
+
+if [ "${SKIP_POWEROFF:-}" != "1" ]; then
+    echo "  Auto-powering off in 60 seconds..."
+    sleep 60
+    poweroff
+fi

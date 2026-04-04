@@ -9,6 +9,13 @@
 # 3. Reports success/failure for each patch
 set -euo pipefail
 
+if [ "${ALLOW_LEGACY_ABP_STEALTH:-0}" != "1" ]; then
+    echo "ERROR: scripts/apply-patches.sh applies the retired legacy ABP stealth patch stack."
+    echo "Use scripts/apply-stealth-extra-edits.sh with the fp-chromium build path instead."
+    echo "Set ALLOW_LEGACY_ABP_STEALTH=1 only for forensic/reference work."
+    exit 1
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 PATCHES_DIR="${PROJECT_DIR}/patches"

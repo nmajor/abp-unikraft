@@ -22,6 +22,13 @@
 # Cost: CCX33 for ~4hrs = ~€1.20. CCX63 for ~2hrs = ~€0.92.
 set -euo pipefail
 
+if [ "${ALLOW_LEGACY_ABP_STEALTH:-0}" != "1" ]; then
+    echo "ERROR: scripts/build-on-hetzner.sh is a legacy pre-fingerprint-chromium build path."
+    echo "Use scripts/build-on-fp-chromium.sh for all active builds."
+    echo "Set ALLOW_LEGACY_ABP_STEALTH=1 only for forensic/reference work."
+    exit 1
+fi
+
 REPO="nmajor/abp-unikraft"
 BRANCH="main"
 BUILD_DIR="/root/build"
