@@ -217,7 +217,7 @@ cmd_start() {
     : > "${LOG_FILE}"
     ensure_repo "${repo_url}" "${repo_ref}" "${commit_sha}"
     write_runner "${commit_sha}" "${fp_tag}" "${abp_branch}"
-    nohup "${RUNNER_FILE}" >/dev/null 2>&1 &
+    nohup setsid "${RUNNER_FILE}" >/dev/null 2>&1 &
     echo $! > "${PID_FILE}"
 
     REMOTE_PHASE="building"
@@ -238,7 +238,7 @@ cmd_stop() {
     reconcile_state
     state_load
     if [ -n "${REMOTE_PID:-}" ]; then
-        kill "${REMOTE_PID}" >/dev/null 2>&1 || true
+        kill -- "-${REMOTE_PID}" >/dev/null 2>&1 || kill "${REMOTE_PID}" >/dev/null 2>&1 || true
     fi
     rm -f "${PID_FILE}"
     REMOTE_PHASE="stopped"

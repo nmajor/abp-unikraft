@@ -158,6 +158,11 @@ echo "  This downloads ~15GB of Chromium source. Takes 15-30 min."
 mkdir -p "${BUILD_DIR}"
 cd "${FP_DIR}"
 
+if [ -d "${BUILD_DIR}/src" ]; then
+    echo "  Cleaning previous Chromium source tree at ${BUILD_DIR}/src ..."
+    rm -rf "${BUILD_DIR}/src"
+fi
+
 # Download Chromium source tarball
 mkdir -p build/download_cache
 python3 utils/downloads.py retrieve -c build/download_cache -i downloads.ini
