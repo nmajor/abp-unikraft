@@ -31,6 +31,7 @@ LOG_FILE="${WATCHDOG_LOG_FILE:-$STATE_DIR/watchdog.log}"
 CRON_LOG_FILE="${WATCHDOG_CRON_LOG_FILE:-$STATE_DIR/cron.log}"
 AUDIT_LOG_FILE="${WATCHDOG_AUDIT_LOG_FILE:-$STATE_DIR/audit.log}"
 LOCK_DIR="${WATCHDOG_LOCK_DIR:-$STATE_DIR/lock}"
+LOCK_META_FILE="${LOCK_DIR}/meta.env"
 CYCLE_LOG_DIR="${WATCHDOG_CYCLE_LOG_DIR:-$STATE_DIR/checks}"
 
 HETZNER_API="${HETZNER_API_TOKEN:-}"
@@ -54,6 +55,8 @@ WATCHDOG_CODEX_TIMEOUT_SECONDS="${WATCHDOG_CODEX_TIMEOUT_SECONDS:-600}"
 WATCHDOG_CODEX_SEARCH="${WATCHDOG_CODEX_SEARCH:-1}"
 WATCHDOG_POST_BUILD_SMOKE_URLS="${WATCHDOG_POST_BUILD_SMOKE_URLS:-https://google.com https://www.olx.pt}"
 WATCHDOG_BOOTSTRAP_TIMEOUT_MINUTES="${WATCHDOG_BOOTSTRAP_TIMEOUT_MINUTES:-30}"
+WATCHDOG_LOCK_WARN_MINUTES="${WATCHDOG_LOCK_WARN_MINUTES:-60}"
+WATCHDOG_LOCK_WARN_SKIPS="${WATCHDOG_LOCK_WARN_SKIPS:-4}"
 
 SSH_OPTS=(
     -o StrictHostKeyChecking=no
@@ -134,10 +137,54 @@ ensure_state_dir() {
 
 acquire_lock() {
     if ! mkdir "${LOCK_DIR}" 2>/dev/null; then
-        log "Another watchdog cycle is already running."
+        record_lock_skip
         exit 0
     fi
+    cat > "${LOCK_META_FILE}" <<EOF
+LOCK_PID="$$"
+LOCK_ACQUIRED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+LOCK_ACQUIRED_AT_EPOCH="$(date -u +%s)"
+EOF
     trap 'rm -rf "${LOCK_DIR}"' EXIT
+}
+
+record_lock_skip() {
+    local now_epoch lock_started_epoch="" lock_age_seconds="" lock_age_minutes=""
+    now_epoch="$(date -u +%s)"
+
+    state_load
+    WATCHDOG_LOCK_SKIP_COUNT="$(( ${WATCHDOG_LOCK_SKIP_COUNT:-0} + 1 ))"
+    if [ -z "${WATCHDOG_LOCK_FIRST_SEEN_AT_EPOCH:-}" ]; then
+        WATCHDOG_LOCK_FIRST_SEEN_AT_EPOCH="${now_epoch}"
+    fi
+
+    if [ -f "${LOCK_META_FILE}" ]; then
+        # shellcheck disable=SC1090
+        . "${LOCK_META_FILE}"
+        lock_started_epoch="${LOCK_ACQUIRED_AT_EPOCH:-}"
+    fi
+
+    if [ -n "${lock_started_epoch}" ]; then
+        lock_age_seconds="$((now_epoch - lock_started_epoch))"
+        lock_age_minutes="$((lock_age_seconds / 60))"
+    fi
+
+    WATCHDOG_LAST_STATUS="watchdog cycle skipped because another cycle is still running"
+    state_write
+
+    if [ -n "${lock_age_minutes}" ] && \
+       [ "${lock_age_minutes}" -ge "${WATCHDOG_LOCK_WARN_MINUTES}" ] && \
+       [ "${WATCHDOG_LOCK_SKIP_COUNT}" -ge "${WATCHDOG_LOCK_WARN_SKIPS}" ]; then
+        audit_log "lock still held after ${WATCHDOG_LOCK_SKIP_COUNT} skipped cycles (~${lock_age_minutes} minutes); investigate stuck watchdog run"
+        log "Another watchdog cycle is still running; lock age is ~${lock_age_minutes} minutes across ${WATCHDOG_LOCK_SKIP_COUNT} skips."
+    else
+        audit_log "skipped cycle because another watchdog run is active"
+        if [ -n "${lock_age_minutes}" ]; then
+            log "Another watchdog cycle is already running (~${lock_age_minutes} minutes old lock)."
+        else
+            log "Another watchdog cycle is already running."
+        fi
+    fi
 }
 
 load_env_from_zshrc() {
@@ -215,6 +262,8 @@ WATCHDOG_REPO_SHA="${WATCHDOG_REPO_SHA:-}"
 WATCHDOG_REPO_DIRTY="${WATCHDOG_REPO_DIRTY:-}"
 WATCHDOG_BOOTSTRAP_STATUS="${WATCHDOG_BOOTSTRAP_STATUS:-}"
 WATCHDOG_LAST_CYCLE_ID="${WATCHDOG_LAST_CYCLE_ID:-}"
+WATCHDOG_LOCK_SKIP_COUNT="${WATCHDOG_LOCK_SKIP_COUNT:-0}"
+WATCHDOG_LOCK_FIRST_SEEN_AT_EPOCH="${WATCHDOG_LOCK_FIRST_SEEN_AT_EPOCH:-}"
 EOF
 }
 
@@ -242,6 +291,8 @@ state_clear() {
     WATCHDOG_REPO_DIRTY=""
     WATCHDOG_BOOTSTRAP_STATUS=""
     WATCHDOG_LAST_CYCLE_ID=""
+    WATCHDOG_LOCK_SKIP_COUNT="0"
+    WATCHDOG_LOCK_FIRST_SEEN_AT_EPOCH=""
     state_write
 }
 
@@ -308,6 +359,8 @@ write_cycle_snapshot() {
         printf 'bootstrap_status=%s\n' "${WATCHDOG_BOOTSTRAP_STATUS:-}"
         printf 'started_at=%s\n' "${WATCHDOG_STARTED_AT:-}"
         printf 'last_check_at=%s\n' "${WATCHDOG_LAST_CHECK_AT:-}"
+        printf 'lock_skip_count=%s\n' "${WATCHDOG_LOCK_SKIP_COUNT:-0}"
+        printf 'lock_first_seen_at_epoch=%s\n' "${WATCHDOG_LOCK_FIRST_SEEN_AT_EPOCH:-}"
         printf '\n[git]\n'
         git -C "${PROJECT_DIR}" status --short --branch
         if [ -n "${WATCHDOG_SERVER_IP:-}" ]; then
@@ -556,6 +609,7 @@ ${log_excerpt}
 Next action:
 - If the build is still running, keep watching, inspect the remote log, and only intervene if progress has stalled or a fix is required.
 - If the build failed, preserve the current Hetzner VM for diagnosis, fix the repo-side issue, commit and push the fix, and let the next watchdog cycle restart on that same machine.
+- If another watchdog cycle is already running, treat that as a normal long-running repair/build loop first. Skip cleanly, log it, and only treat it as suspicious if the lock persists for many cycles or roughly an hour.
 - If the build completed, verify the GitHub release asset, update Dockerfile to the new release tag, deploy, run deployment verification, smoke-test ${WATCHDOG_POST_BUILD_SMOKE_URLS}, and then clear the watchdog state.
 
 Self-improvement rules:
@@ -565,6 +619,7 @@ Self-improvement rules:
 - Tighten timeouts, retries, and verification when you find a gap, but keep the workflow idempotent.
 - If you do edit the repo, leave it clean and pushed before the watchdog is allowed to start another VM.
 - Preserve the current Hetzner VM when a build fails unless the overall watchdog flow has exceeded ${WATCHDOG_FLOW_TIMEOUT_HOURS} hours or the user explicitly asks for cleanup.
+- Respect the watchdog lock. If a prior cycle is still working, do not interrupt it; log the skip and only escalate if repeated skips suggest the workflow is stuck.
 - Stop the cron loop by uninstalling it when the workflow is in a terminal completed or failed state.
 EOF
     cat "${PROMPT_FILE}"
@@ -659,11 +714,20 @@ check_env() {
     require_credentials
 }
 
+reset_lock_skip_tracking() {
+    if [ "${WATCHDOG_LOCK_SKIP_COUNT:-0}" != "0" ] || [ -n "${WATCHDOG_LOCK_FIRST_SEEN_AT_EPOCH:-}" ]; then
+        WATCHDOG_LOCK_SKIP_COUNT="0"
+        WATCHDOG_LOCK_FIRST_SEEN_AT_EPOCH=""
+        state_write
+    fi
+}
+
 start_cycle() {
     ensure_state_dir
     acquire_lock
     state_load
     check_env
+    reset_lock_skip_tracking
     WATCHDOG_LAST_CHECK_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     audit_log "cycle started"
     write_cycle_snapshot
