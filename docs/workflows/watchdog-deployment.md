@@ -73,7 +73,7 @@ The watchdog refuses to start from a dirty or unpushed repo and records the exac
 
 - `WATCHDOG_SERVER_TYPE` defaults to `cpx51`
 - `WATCHDOG_SERVER_LOCATION` defaults to `ash`
-- `WATCHDOG_FP_CHROMIUM_TAG` defaults to `144.0.7559.132`
+- `WATCHDOG_FP_CHROMIUM_TAG` defaults to `142.0.7444.175` because that is the latest source-available fp-chromium tag currently buildable in this pipeline
 - `WATCHDOG_ABP_BRANCH` defaults to `dev`
 - `WATCHDOG_REPO_REF` defaults to `main`
 - `WATCHDOG_BUILD_TIMEOUT_HOURS` defaults to `8`

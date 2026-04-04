@@ -278,7 +278,7 @@ ssh root@SERVER_IP "apt-get update && apt-get install -y build-essential clang c
 
 ```bash
 # Clone fingerprint-chromium
-git clone --depth 1 --branch 144.0.7559.132 \
+git clone --depth 1 --branch 142.0.7444.175 \
     https://github.com/adryfish/fingerprint-chromium.git /root/fingerprint-chromium
 
 # Download + unpack + patch Chromium source
@@ -360,7 +360,7 @@ cd "${PKG}" && tar -czf /root/abp-stealth-linux-x64.tar.gz abp-chrome/
 VERSION="stealth-fp-$(date +%Y%m%d-%H%M%S)"
 gh release create "${VERSION}" --repo nmajor/abp-unikraft \
     --title "ABP Stealth ${VERSION}" \
-    --notes "Built on fingerprint-chromium 144.0.7559.132" \
+    --notes "Built on fingerprint-chromium 142.0.7444.175" \
     "/root/abp-stealth-linux-x64.tar.gz#abp-stealth-linux-x64.tar.gz"
 ```
 
@@ -390,9 +390,13 @@ ssh root@IP "grep 'FAILED' /root/build.log"
 
 ## Version-Specific Notes
 
-### Chromium 144 (fingerprint-chromium 144.0.7559.132)
+### Chromium 142 (fingerprint-chromium 142.0.7444.175)
 - Re-check Clang/Rust/Node/esbuild versions from the unpacked source tree before building
 - `enable_rust=false` does NOT work — Rust is required for core components
+
+### Upstream Binary-Only Tags
+- Upstream may publish a newer fp-chromium release before the matching source tree is available in the repo.
+- If a tag is missing `downloads.ini` or `utils/downloads.py`, treat it as binary-only and keep the build pin on the latest source-available tag.
 
 ### When Upgrading to New fingerprint-chromium Version
 1. Update the git tag in clone command

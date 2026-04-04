@@ -104,7 +104,7 @@ First build takes ~4-6 hours on a Hetzner CPX51.
 
 Key steps:
 1. Create temporary Hetzner CPX51 VM (~€0.25-0.50 total)
-2. Clone fingerprint-chromium (tagged release, currently 144.0.7559.132)
+2. Clone fingerprint-chromium (latest source-available tagged release, currently 142.0.7444.175; newer upstream binary-only tags may not be buildable yet)
 3. Download + unpack + patch Chromium source
 4. Overlay ABP protocol code and fail the build if the overlay reintroduces legacy ABP stealth remapping
 5. Apply stealth-extra edits + feature edits

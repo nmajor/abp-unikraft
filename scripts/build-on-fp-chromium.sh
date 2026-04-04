@@ -28,10 +28,10 @@ BUILD_DIR="/root/build"
 NPROC=$(nproc 2>/dev/null || grep -c ^processor /proc/cpuinfo 2>/dev/null || echo 4)
 
 # fingerprint-chromium version to build against.
-# Keep this pinned to the latest source release we've validated in this repo.
-# Check upstream releases before changing:
-#   https://github.com/adryfish/fingerprint-chromium/releases
-FP_CHROMIUM_TAG="${FP_CHROMIUM_TAG:-144.0.7559.132}"
+# Upstream's newest release can be binary-only for a while; this build needs
+# a tag that still ships the source/build tooling in-repo.
+# Keep this pinned to the latest source-available release we've validated here.
+FP_CHROMIUM_TAG="${FP_CHROMIUM_TAG:-142.0.7444.175}"
 
 # ABP source — the upstream Agent Browser Protocol repo.
 ABP_REPO="https://github.com/theredsix/agent-browser-protocol.git"
@@ -120,6 +120,33 @@ else
     cd "${FP_DIR}" && git fetch && git checkout "${FP_CHROMIUM_TAG}"
 fi
 echo "  fingerprint-chromium at: ${FP_DIR}"
+
+required_fp_files=(
+    downloads.ini
+    pruning.list
+    domain_regex.list
+    domain_substitution.list
+    utils/downloads.py
+    utils/patches.py
+    utils/prune_binaries.py
+    utils/domain_substitution.py
+)
+
+missing_fp_files=()
+for path in "${required_fp_files[@]}"; do
+    if [ ! -e "${FP_DIR}/${path}" ]; then
+        missing_fp_files+=("${path}")
+    fi
+done
+
+if [ "${#missing_fp_files[@]}" -ne 0 ]; then
+    echo "ERROR: fingerprint-chromium tag ${FP_CHROMIUM_TAG} does not include the source build files this pipeline requires."
+    printf 'Missing files:\n'
+    printf '  - %s\n' "${missing_fp_files[@]}"
+    echo "This upstream project sometimes publishes binary-only tags before releasing the full source tree."
+    echo "Use the latest source-available tag instead."
+    exit 1
+fi
 
 # -------------------------------------------------------------------
 # Step 5: Download + patch Chromium source via fp-chromium build system

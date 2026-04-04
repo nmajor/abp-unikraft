@@ -42,7 +42,7 @@ WATCHDOG_SERVER_NAME_PREFIX="${WATCHDOG_SERVER_NAME_PREFIX:-abp-watchdog}"
 WATCHDOG_SSH_KEY_NAME="${WATCHDOG_SSH_KEY_NAME:-abp-build-key}"
 WATCHDOG_REPO_URL="${WATCHDOG_REPO_URL:-https://github.com/nmajor/abp-unikraft.git}"
 WATCHDOG_REPO_REF="${WATCHDOG_REPO_REF:-main}"
-WATCHDOG_FP_CHROMIUM_TAG="${WATCHDOG_FP_CHROMIUM_TAG:-144.0.7559.132}"
+WATCHDOG_FP_CHROMIUM_TAG="${WATCHDOG_FP_CHROMIUM_TAG:-142.0.7444.175}"
 WATCHDOG_ABP_BRANCH="${WATCHDOG_ABP_BRANCH:-dev}"
 WATCHDOG_MAX_RETRIES="${WATCHDOG_MAX_RETRIES:-2}"
 WATCHDOG_AUTO_RETRY="${WATCHDOG_AUTO_RETRY:-1}"
@@ -88,6 +88,37 @@ audit_log() {
         "${WATCHDOG_RETRY_COUNT:-0}" \
         "${WATCHDOG_RELEASE_TAG:-}" \
         "$*" >> "${AUDIT_LOG_FILE}"
+}
+
+
+# Save full remote build log for postmortem before cleanup.
+save_remote_log() {
+    if [ -z "${WATCHDOG_SERVER_IP:-}" ]; then
+        return 0
+    fi
+    ensure_state_dir
+    local ts target tmp
+    ts="$(date -u +%Y%m%dT%H%M%SZ)"
+    target="${STATE_DIR}/remote-build-${ts}.log"
+    tmp="$(mktemp)"
+    # Try to fetch the whole log; fall back to tail if it is huge.
+    if ssh "${SSH_OPTS[@]}" "root@${WATCHDOG_SERVER_IP}" "test -f /root/watchdog-build.log" >/dev/null 2>&1; then
+        ssh "${SSH_OPTS[@]}" "root@${WATCHDOG_SERVER_IP}"             "wc -c < /root/watchdog-build.log" >"${tmp}" 2>/dev/null || true
+        local size
+        size=$(cat "${tmp}" 2>/dev/null || echo 0)
+        # Cap at ~5 MiB to avoid huge state files.
+        if [ "${size}" -gt 5242880 ]; then
+            ssh "${SSH_OPTS[@]}" "root@${WATCHDOG_SERVER_IP}"                 "tail -c 5242880 /root/watchdog-build.log" >"${target}" 2>/dev/null || true
+        else
+            ssh "${SSH_OPTS[@]}" "root@${WATCHDOG_SERVER_IP}"                 "cat /root/watchdog-build.log" >"${target}" 2>/dev/null || true
+        fi
+        rm -f "${tmp}"
+        if [ -s "${target}" ]; then
+            log "Saved remote build log to ${target}"
+        else
+            rm -f "${target}"
+        fi
+    fi
 }
 
 die() {

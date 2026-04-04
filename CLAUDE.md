@@ -113,6 +113,7 @@ These 6 patches cover surfaces fingerprint-chromium does NOT patch:
 
 IMPORTANT:
 - Every new Chromium build/release must record the exact `fingerprint-chromium` tag, the GitHub release tag, and a short release note describing what changed.
+- Record both the latest upstream fp-chromium release and the latest source-available fp-chromium tag when they differ. If upstream is temporarily binary-only, document that explicitly instead of silently bumping the build pin.
 - Update this file, `README.md`, `MIGRATION.md`, and the GitHub release notes when a new build is cut.
 - If a watchdog or Hetzner build uncovers a recurring failure mode, encode the fix in scripts/docs so the next build is smoother.
 - Never ship a new binary without an auditable paper trail of version, release tag, and notable changes.

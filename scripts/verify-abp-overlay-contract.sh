@@ -21,7 +21,11 @@ check_absent() {
     local label="$2"
     local tmp
     tmp="$(mktemp)"
-    if rg -n --glob '!test/**' --glob '!test_pages/**' --glob '!*.md' "${pattern}" "${ABP_DIR}" >"${tmp}" 2>/dev/null; then
+    if grep -RInE \
+        --exclude-dir=test \
+        --exclude-dir=test_pages \
+        --exclude='*.md' \
+        "${pattern}" "${ABP_DIR}" >"${tmp}" 2>/dev/null; then
         echo "ERROR: Found forbidden ${label} in ABP overlay:"
         cat "${tmp}"
         fail=1

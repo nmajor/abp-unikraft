@@ -120,7 +120,7 @@ with `scripts/verify-abp-overlay-contract.sh` after the ABP source overlay step.
 
 ```bash
 # On a fresh Hetzner CCX33 (16 cores, 64GB RAM, ~€0.30/hr):
-export FP_CHROMIUM_TAG="144.0.7559.132"  # or latest available source tag
+export FP_CHROMIUM_TAG="142.0.7444.175"  # latest source-available tag validated here
 curl -sL https://raw.githubusercontent.com/nmajor/abp-unikraft/main/scripts/build-on-fp-chromium.sh | bash
 ```
 
