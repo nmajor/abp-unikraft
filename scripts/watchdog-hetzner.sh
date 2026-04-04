@@ -50,6 +50,7 @@ WATCHDOG_AUTO_RETRY="${WATCHDOG_AUTO_RETRY:-1}"
 WATCHDOG_SSH_TIMEOUT="${WATCHDOG_SSH_TIMEOUT:-10}"
 WATCHDOG_FLOW_TIMEOUT_HOURS="${WATCHDOG_FLOW_TIMEOUT_HOURS:-24}"
 WATCHDOG_RUN_CODEX="${WATCHDOG_RUN_CODEX:-1}"
+WATCHDOG_CODEX_BIN="${WATCHDOG_CODEX_BIN:-/var/lib/asdf/installs/nodejs/24.8.0/bin/codex}"
 WATCHDOG_CODEX_MODEL="${WATCHDOG_CODEX_MODEL:-gpt-5}"
 WATCHDOG_CODEX_TIMEOUT_SECONDS="${WATCHDOG_CODEX_TIMEOUT_SECONDS:-600}"
 WATCHDOG_CODEX_SEARCH="${WATCHDOG_CODEX_SEARCH:-1}"
@@ -240,8 +241,14 @@ require_credentials() {
     if ! command -v ssh >/dev/null 2>&1 || ! command -v scp >/dev/null 2>&1 || ! command -v curl >/dev/null 2>&1 || ! command -v gh >/dev/null 2>&1 || ! command -v python3 >/dev/null 2>&1 || ! command -v grep >/dev/null 2>&1; then
         die "ssh, scp, curl, gh, python3, and grep are required."
     fi
-    if [ "${WATCHDOG_RUN_CODEX}" = "1" ] && ! command -v codex >/dev/null 2>&1; then
-        die "codex CLI is required when WATCHDOG_RUN_CODEX=1."
+    if [ "${WATCHDOG_RUN_CODEX}" = "1" ]; then
+        if [ -x "${WATCHDOG_CODEX_BIN}" ]; then
+            :
+        elif command -v codex >/dev/null 2>&1; then
+            WATCHDOG_CODEX_BIN="$(command -v codex)"
+        else
+            die "codex CLI is required when WATCHDOG_RUN_CODEX=1."
+        fi
     fi
 }
 
@@ -633,7 +640,7 @@ run_codex_cycle() {
     render_prompt >/dev/null
     local last_message
     last_message="${STATE_DIR}/codex-last-message.txt"
-    local codex_cmd=(codex)
+    local codex_cmd=("${WATCHDOG_CODEX_BIN}")
     if [ "${WATCHDOG_CODEX_SEARCH}" = "1" ]; then
         codex_cmd+=(--search)
     fi
@@ -939,7 +946,7 @@ install_cron() {
     local repo_root cron_line current_crontab tmp_crontab marker
     repo_root="${PROJECT_DIR}"
     marker="# ABP watchdog deployment"
-    cron_line="*/15 * * * * cd ${repo_root} && zsh -lc 'WATCHDOG_STATE_DIR=${STATE_DIR} WATCHDOG_AUTO_RETRY=1 WATCHDOG_RUN_CODEX=1 WATCHDOG_CODEX_SEARCH=1 WATCHDOG_CODEX_TIMEOUT_SECONDS=600 ./scripts/watchdog-hetzner.sh cycle >> ${CRON_LOG_FILE} 2>&1' ${marker}"
+    cron_line="*/15 * * * * cd ${repo_root} && zsh -lc 'PATH=/var/lib/asdf/installs/nodejs/24.8.0/bin:/var/lib/asdf/shims:/usr/local/bin:/usr/bin:/bin WATCHDOG_STATE_DIR=${STATE_DIR} WATCHDOG_AUTO_RETRY=1 WATCHDOG_RUN_CODEX=1 WATCHDOG_CODEX_BIN=${WATCHDOG_CODEX_BIN} WATCHDOG_CODEX_SEARCH=1 WATCHDOG_CODEX_TIMEOUT_SECONDS=600 ./scripts/watchdog-hetzner.sh cycle >> ${CRON_LOG_FILE} 2>&1' ${marker}"
 
     current_crontab="$(crontab -l 2>/dev/null || true)"
     tmp_crontab="$(mktemp)"
