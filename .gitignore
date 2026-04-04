@@ -1,3 +1,5 @@
 .rootfs/
 initrd
 *.tar.gz
+
+.omc/

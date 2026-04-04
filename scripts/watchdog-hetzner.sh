@@ -570,10 +570,12 @@ handle_failure() {
 
     if [ "${WATCHDOG_AUTO_RETRY}" = "1" ] && [ "${WATCHDOG_RETRY_COUNT:-0}" -lt "${WATCHDOG_MAX_RETRIES}" ]; then
         WATCHDOG_RETRY_COUNT="$((WATCHDOG_RETRY_COUNT + 1))"
-        WATCHDOG_PHASE="retrying"
+        WATCHDOG_PHASE="retry_pending"
+        WATCHDOG_LAST_STATUS="awaiting repo fix/push before retry"
         state_write
-        audit_log "retrying after failure"
-        start_fresh_build
+        audit_log "retry pending after failure"
+        log "Retry is pending (${WATCHDOG_RETRY_COUNT}/${WATCHDOG_MAX_RETRIES}). The next cycle will only start after the repo is clean and pushed."
+        write_cycle_snapshot
         run_codex_cycle
         return 0
     fi
@@ -622,7 +624,6 @@ start_cycle() {
     acquire_lock
     state_load
     check_env
-    git_preflight
     WATCHDOG_LAST_CHECK_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     audit_log "cycle started"
     write_cycle_snapshot
@@ -642,10 +643,11 @@ start_cycle() {
             reset_server_state
             if [ "${WATCHDOG_AUTO_RETRY}" = "1" ] && [ "${WATCHDOG_RETRY_COUNT:-0}" -lt "${WATCHDOG_MAX_RETRIES}" ]; then
                 WATCHDOG_RETRY_COUNT="$((WATCHDOG_RETRY_COUNT + 1))"
-                WATCHDOG_PHASE="retrying"
+                WATCHDOG_PHASE="retry_pending"
+                WATCHDOG_LAST_STATUS="awaiting repo fix/push before retry"
                 state_write
-                audit_log "retrying after timeout"
-                start_fresh_build
+                audit_log "retry pending after timeout"
+                write_cycle_snapshot
                 run_codex_cycle
                 return 0
             fi
@@ -655,6 +657,16 @@ start_cycle() {
             run_codex_cycle
             uninstall_cron >/dev/null 2>&1 || true
             return 1
+        fi
+    fi
+
+    if [ -n "${WATCHDOG_SERVER_ID:-}" ] && [ -n "${WATCHDOG_SERVER_IP:-}" ]; then
+        if ! server_exists; then
+            WATCHDOG_LAST_STATUS="tracked Hetzner server no longer exists"
+            WATCHDOG_PHASE="retry_pending"
+            state_write
+            audit_log "tracked Hetzner server no longer exists"
+            reset_server_state
         fi
     fi
 
@@ -726,6 +738,11 @@ start_cycle() {
         return $?
     fi
 
+    if ! git_preflight; then
+        write_cycle_snapshot
+        return 0
+    fi
+
     WATCHDOG_RETRY_COUNT="${WATCHDOG_RETRY_COUNT:-0}"
     start_fresh_build
     audit_log "fresh build started"
@@ -733,6 +750,10 @@ start_cycle() {
 }
 
 start_fresh_build() {
+    if ! git_preflight; then
+        write_cycle_snapshot
+        return 1
+    fi
     create_server
     WATCHDOG_PHASE="bootstrapping"
     WATCHDOG_BOOTSTRAP_STATUS="waiting for SSH"
@@ -767,6 +788,8 @@ Phase: ${WATCHDOG_PHASE:-unknown}
 Server: ${WATCHDOG_SERVER_NAME:-none}
 Server ID: ${WATCHDOG_SERVER_ID:-none}
 Server IP: ${WATCHDOG_SERVER_IP:-none}
+Repo ref: ${WATCHDOG_REPO_REF}
+Repo commit: ${WATCHDOG_REPO_SHA:-none}
 Retry count: ${WATCHDOG_RETRY_COUNT:-0}/${WATCHDOG_MAX_RETRIES}
 Last status: ${WATCHDOG_LAST_STATUS:-unknown}
 Release: ${WATCHDOG_RELEASE_TAG:-none}
