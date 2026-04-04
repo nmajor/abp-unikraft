@@ -109,14 +109,14 @@ acquire_lock() {
 }
 
 load_env_from_zshrc() {
-    if [ -z "${HETZNER_API}" ] && [ -f "$HOME/.zshrc" ] && rg -q '^export HETZNER_API_TOKEN=' "$HOME/.zshrc"; then
+    if [ -z "${HETZNER_API}" ] && [ -f "$HOME/.zshrc" ] && grep -q '^export HETZNER_API_TOKEN=' "$HOME/.zshrc"; then
         # shellcheck disable=SC1090
         set -a
         . "$HOME/.zshrc"
         set +a
         HETZNER_API="${HETZNER_API_TOKEN:-}"
     fi
-    if [ -z "${GH_TOKEN}" ] && [ -f "$HOME/.zshrc" ] && rg -q '^export GH_TOKEN=' "$HOME/.zshrc"; then
+    if [ -z "${GH_TOKEN}" ] && [ -f "$HOME/.zshrc" ] && grep -q '^export GH_TOKEN=' "$HOME/.zshrc"; then
         # shellcheck disable=SC1090
         set -a
         . "$HOME/.zshrc"
@@ -144,8 +144,8 @@ require_credentials() {
     if [ -z "${GH_TOKEN}" ]; then
         die "GitHub auth is missing. Set GH_TOKEN or authenticate gh locally."
     fi
-    if ! command -v ssh >/dev/null 2>&1 || ! command -v scp >/dev/null 2>&1 || ! command -v curl >/dev/null 2>&1 || ! command -v gh >/dev/null 2>&1 || ! command -v python3 >/dev/null 2>&1 || ! command -v rg >/dev/null 2>&1; then
-        die "ssh, scp, curl, gh, python3, and rg are required."
+    if ! command -v ssh >/dev/null 2>&1 || ! command -v scp >/dev/null 2>&1 || ! command -v curl >/dev/null 2>&1 || ! command -v gh >/dev/null 2>&1 || ! command -v python3 >/dev/null 2>&1 || ! command -v grep >/dev/null 2>&1; then
+        die "ssh, scp, curl, gh, python3, and grep are required."
     fi
     if [ "${WATCHDOG_RUN_CODEX}" = "1" ] && ! command -v codex >/dev/null 2>&1; then
         die "codex CLI is required when WATCHDOG_RUN_CODEX=1."
@@ -211,7 +211,7 @@ git_preflight() {
         return 1
     fi
 
-    status_output="$(git -C "${PROJECT_DIR}" status --porcelain --untracked-files=all | rg -v '^\?\? \.omc(/|$)' || true)"
+    status_output="$(git -C "${PROJECT_DIR}" status --porcelain --untracked-files=all | grep -vE '^\?\? \.omc(/|$)' || true)"
     if [ -n "${status_output}" ]; then
         WATCHDOG_REPO_DIRTY="1"
         WATCHDOG_LAST_STATUS="repo has uncommitted changes"
@@ -283,7 +283,7 @@ hetzner_api() {
 }
 
 check_zshrc_has_token() {
-    if [ -f "$HOME/.zshrc" ] && rg -q '^export HETZNER_API_TOKEN=' "$HOME/.zshrc"; then
+    if [ -f "$HOME/.zshrc" ] && grep -q '^export HETZNER_API_TOKEN=' "$HOME/.zshrc"; then
         log "Found HETZNER_API_TOKEN export in ~/.zshrc."
     fi
 }
@@ -706,7 +706,7 @@ start_cycle() {
 
         local tail_text
         tail_text="$(remote_log_tail 120 || true)"
-        if printf '%s\n' "${tail_text}" | rg -q 'ALL DONE!'; then
+        if printf '%s\n' "${tail_text}" | grep -q 'ALL DONE!'; then
             WATCHDOG_PHASE="completed"
             WATCHDOG_LAST_STATUS="build completed"
             WATCHDOG_RELEASE_TAG="$(printf '%s\n' "${tail_text}" | sed -n 's/.*Release: .*\/tag\/\([^ ]*\).*/\1/p' | tail -n1)"
@@ -798,7 +798,7 @@ uninstall_cron() {
     local current_crontab tmp_crontab
     current_crontab="$(crontab -l 2>/dev/null || true)"
     tmp_crontab="$(mktemp)"
-    printf '%s\n' "${current_crontab}" | rg -v 'ABP watchdog deployment' > "${tmp_crontab}" || true
+    printf '%s\n' "${current_crontab}" | grep -v 'ABP watchdog deployment' > "${tmp_crontab}" || true
     crontab "${tmp_crontab}"
     rm -f "${tmp_crontab}"
     audit_log "removed watchdog cron entry"
@@ -814,7 +814,7 @@ install_cron() {
 
     current_crontab="$(crontab -l 2>/dev/null || true)"
     tmp_crontab="$(mktemp)"
-    printf '%s\n' "${current_crontab}" | rg -v 'ABP watchdog deployment' > "${tmp_crontab}" || true
+    printf '%s\n' "${current_crontab}" | grep -v 'ABP watchdog deployment' > "${tmp_crontab}" || true
     printf '%s\n' "${cron_line}" >> "${tmp_crontab}"
     crontab "${tmp_crontab}"
     rm -f "${tmp_crontab}"
