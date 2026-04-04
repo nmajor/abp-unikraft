@@ -454,6 +454,13 @@ server_exists() {
     printf '%s' "${response}" | python3 -c 'import json,sys; d=json.load(sys.stdin); sys.exit(0 if d.get("server") else 1)' >/dev/null 2>&1
 }
 
+server_reachable_by_ssh() {
+    if [ -z "${WATCHDOG_SERVER_IP:-}" ]; then
+        return 1
+    fi
+    ssh "${SSH_OPTS[@]}" "root@${WATCHDOG_SERVER_IP}" "echo ready" >/dev/null 2>&1
+}
+
 wait_for_ssh() {
     local attempt
     for attempt in $(seq 1 60); do
@@ -764,11 +771,24 @@ start_cycle() {
 
     if [ -n "${WATCHDOG_SERVER_ID:-}" ] && [ -n "${WATCHDOG_SERVER_IP:-}" ]; then
         if ! server_exists; then
-            WATCHDOG_LAST_STATUS="tracked Hetzner server no longer exists"
-            WATCHDOG_PHASE="repair_pending"
-            state_write
-            audit_log "tracked Hetzner server no longer exists"
-            reset_server_state
+            if server_reachable_by_ssh; then
+                WATCHDOG_LAST_STATUS="Hetzner API missed the tracked server, but SSH still works; preserving current VM"
+                state_write
+                audit_log "Hetzner API missed the tracked server, but SSH still works; preserving current VM"
+            else
+                sleep 5
+                if server_exists; then
+                    WATCHDOG_LAST_STATUS="tracked Hetzner server check recovered after retry"
+                    state_write
+                    audit_log "tracked Hetzner server check recovered after retry"
+                else
+                    WATCHDOG_LAST_STATUS="tracked Hetzner server no longer exists"
+                    WATCHDOG_PHASE="repair_pending"
+                    state_write
+                    audit_log "tracked Hetzner server no longer exists"
+                    reset_server_state
+                fi
+            fi
         fi
     fi
 
