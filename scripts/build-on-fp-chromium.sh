@@ -175,6 +175,15 @@ python3 utils/prune_binaries.py "${BUILD_DIR}/src" pruning.list
 python3 utils/patches.py apply "${BUILD_DIR}/src" patches
 
 # Domain substitution
+# fingerprint-chromium's domain substitution caches into a tarball and
+# raises FileExistsError if the cache already exists. On watchdog reruns
+# (same VM), that cache may be present from a previous attempt. Clean it
+# proactively so the step is idempotent.
+cache_path="build/domsubcache.tar.gz"
+if [ -e "${cache_path}" ]; then
+    echo "  Removing existing domain substitution cache: ${cache_path}"
+    rm -f "${cache_path}"
+fi
 python3 utils/domain_substitution.py apply \
     -r domain_regex.list \
     -f domain_substitution.list \
