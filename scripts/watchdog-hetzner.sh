@@ -47,7 +47,7 @@ WATCHDOG_ABP_BRANCH="${WATCHDOG_ABP_BRANCH:-dev}"
 WATCHDOG_MAX_RETRIES="${WATCHDOG_MAX_RETRIES:-2}"
 WATCHDOG_AUTO_RETRY="${WATCHDOG_AUTO_RETRY:-1}"
 WATCHDOG_SSH_TIMEOUT="${WATCHDOG_SSH_TIMEOUT:-10}"
-WATCHDOG_BUILD_TIMEOUT_HOURS="${WATCHDOG_BUILD_TIMEOUT_HOURS:-8}"
+WATCHDOG_FLOW_TIMEOUT_HOURS="${WATCHDOG_FLOW_TIMEOUT_HOURS:-24}"
 WATCHDOG_RUN_CODEX="${WATCHDOG_RUN_CODEX:-1}"
 WATCHDOG_CODEX_MODEL="${WATCHDOG_CODEX_MODEL:-gpt-5}"
 WATCHDOG_CODEX_TIMEOUT_SECONDS="${WATCHDOG_CODEX_TIMEOUT_SECONDS:-600}"
@@ -70,6 +70,7 @@ State dir: ${STATE_DIR}
 Remote base image: ${WATCHDOG_SERVER_IMAGE}
 Default server type: ${WATCHDOG_SERVER_TYPE}
 Default fp-chromium tag: ${WATCHDOG_FP_CHROMIUM_TAG}
+Flow timeout hours: ${WATCHDOG_FLOW_TIMEOUT_HOURS}
 EOF
 }
 
@@ -540,7 +541,7 @@ ${log_excerpt}
 
 Next action:
 - If the build is still running, keep watching, inspect the remote log, and only intervene if progress has stalled or a fix is required.
-- If the build failed, clean up the Hetzner VM, fix the repo-side issue, commit and push the fix, and let the next watchdog cycle restart from the new pushed commit.
+- If the build failed, preserve the current Hetzner VM for diagnosis, fix the repo-side issue, commit and push the fix, and let the next watchdog cycle restart on that same machine.
 - If the build completed, verify the GitHub release asset, update Dockerfile to the new release tag, deploy, run deployment verification, smoke-test ${WATCHDOG_POST_BUILD_SMOKE_URLS}, and then clear the watchdog state.
 
 Self-improvement rules:
@@ -549,6 +550,7 @@ Self-improvement rules:
 - Record recurring Hetzner, GitHub token, upload, and compiler issues in docs/workflows/watchdog-deployment.md or docs/workflows/hetzner-build.md.
 - Tighten timeouts, retries, and verification when you find a gap, but keep the workflow idempotent.
 - If you do edit the repo, leave it clean and pushed before the watchdog is allowed to start another VM.
+- Preserve the current Hetzner VM when a build fails unless the overall watchdog flow has exceeded ${WATCHDOG_FLOW_TIMEOUT_HOURS} hours or the user explicitly asks for cleanup.
 - Stop the cron loop by uninstalling it when the workflow is in a terminal completed or failed state.
 EOF
     cat "${PROMPT_FILE}"
@@ -600,29 +602,16 @@ handle_failure() {
     state_write
     audit_log "${reason}"
     write_cycle_snapshot
-    if [ -n "${WATCHDOG_SERVER_ID:-}" ]; then
-        cleanup_server
-    fi
-    reset_server_state
-
-    if [ "${WATCHDOG_AUTO_RETRY}" = "1" ] && [ "${WATCHDOG_RETRY_COUNT:-0}" -lt "${WATCHDOG_MAX_RETRIES}" ]; then
-        WATCHDOG_RETRY_COUNT="$((WATCHDOG_RETRY_COUNT + 1))"
-        WATCHDOG_PHASE="retry_pending"
-        WATCHDOG_LAST_STATUS="awaiting repo fix/push before retry"
-        state_write
-        audit_log "retry pending after failure"
-        log "Retry is pending (${WATCHDOG_RETRY_COUNT}/${WATCHDOG_MAX_RETRIES}). The next cycle will only start after the repo is clean and pushed."
-        write_cycle_snapshot
-        run_codex_cycle
-        return 0
-    fi
-
-    WATCHDOG_PHASE="failed"
+    save_remote_log || true
+    WATCHDOG_RETRY_COUNT="$((WATCHDOG_RETRY_COUNT + 1))"
+    WATCHDOG_PHASE="repair_pending"
+    WATCHDOG_LAST_STATUS="awaiting repo fix/push before restart on existing VM"
     state_write
-    audit_log "terminal failure after retries exhausted"
+    audit_log "repair pending after failure"
+    log "Build failed. Preserving Hetzner server for diagnosis and restart after the next pushed fix."
+    write_cycle_snapshot
     run_codex_cycle
-    uninstall_cron >/dev/null 2>&1 || true
-    return 1
+    return 0
 }
 
 resume_bootstrap() {
@@ -669,25 +658,16 @@ start_cycle() {
         local now_epoch elapsed_seconds timeout_seconds
         now_epoch="$(date -u +%s)"
         elapsed_seconds="$((now_epoch - WATCHDOG_STARTED_AT_EPOCH))"
-        timeout_seconds="$((WATCHDOG_BUILD_TIMEOUT_HOURS * 3600))"
+        timeout_seconds="$((WATCHDOG_FLOW_TIMEOUT_HOURS * 3600))"
         if [ "${elapsed_seconds}" -gt "${timeout_seconds}" ]; then
-            WATCHDOG_LAST_STATUS="build timed out"
+            WATCHDOG_LAST_STATUS="watchdog flow timed out"
             state_write
-            audit_log "build timed out"
-            log "Build exceeded watchdog timeout (${WATCHDOG_BUILD_TIMEOUT_HOURS}h). Killing remote job."
+            audit_log "watchdog flow timed out"
+            log "Watchdog flow exceeded ${WATCHDOG_FLOW_TIMEOUT_HOURS}h. Killing remote job and destroying the server."
             remote_kill_build || true
+            save_remote_log || true
             cleanup_server
             reset_server_state
-            if [ "${WATCHDOG_AUTO_RETRY}" = "1" ] && [ "${WATCHDOG_RETRY_COUNT:-0}" -lt "${WATCHDOG_MAX_RETRIES}" ]; then
-                WATCHDOG_RETRY_COUNT="$((WATCHDOG_RETRY_COUNT + 1))"
-                WATCHDOG_PHASE="retry_pending"
-                WATCHDOG_LAST_STATUS="awaiting repo fix/push before retry"
-                state_write
-                audit_log "retry pending after timeout"
-                write_cycle_snapshot
-                run_codex_cycle
-                return 0
-            fi
             WATCHDOG_PHASE="failed"
             state_write
             audit_log "terminal failure after timeout"
@@ -700,7 +680,7 @@ start_cycle() {
     if [ -n "${WATCHDOG_SERVER_ID:-}" ] && [ -n "${WATCHDOG_SERVER_IP:-}" ]; then
         if ! server_exists; then
             WATCHDOG_LAST_STATUS="tracked Hetzner server no longer exists"
-            WATCHDOG_PHASE="retry_pending"
+            WATCHDOG_PHASE="repair_pending"
             state_write
             audit_log "tracked Hetzner server no longer exists"
             reset_server_state
@@ -708,6 +688,44 @@ start_cycle() {
     fi
 
     if [ -n "${WATCHDOG_SERVER_ID:-}" ] && [ -n "${WATCHDOG_SERVER_IP:-}" ]; then
+        if [ "${WATCHDOG_PHASE:-}" = "repair_pending" ]; then
+            local previous_sha new_sha
+            previous_sha="${WATCHDOG_REPO_SHA:-}"
+            if ! git_preflight; then
+                WATCHDOG_LAST_STATUS="awaiting repo fix/push before restart on existing VM"
+                state_write
+                write_cycle_snapshot
+                run_codex_cycle
+                return 0
+            fi
+            new_sha="${WATCHDOG_REPO_SHA:-}"
+            if [ "${new_sha}" = "${previous_sha}" ]; then
+                WATCHDOG_LAST_STATUS="waiting for a newly pushed fix before restarting existing VM"
+                state_write
+                audit_log "repair pending; no new pushed commit yet"
+                write_cycle_snapshot
+                run_codex_cycle
+                return 0
+            fi
+            WATCHDOG_LAST_STATUS="restarting build on existing VM with pushed fix ${new_sha}"
+            state_write
+            audit_log "restarting build on existing VM with pushed fix"
+            if ! bootstrap_remote_build; then
+                WATCHDOG_PHASE="repair_pending"
+                WATCHDOG_LAST_STATUS="restart incomplete; existing VM preserved"
+                state_write
+                audit_log "restart incomplete; existing VM preserved"
+                write_cycle_snapshot
+                run_codex_cycle
+                return 0
+            fi
+            WATCHDOG_LAST_STATUS="build restarted on existing VM"
+            state_write
+            write_cycle_snapshot
+            run_codex_cycle
+            return 0
+        fi
+
         if [ "${WATCHDOG_PHASE:-}" = "provisioning" ] || [ "${WATCHDOG_PHASE:-}" = "bootstrapping" ]; then
             WATCHDOG_LAST_STATUS="resuming bootstrap"
             state_write
