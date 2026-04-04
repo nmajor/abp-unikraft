@@ -544,9 +544,11 @@ Next action:
 - If the build completed, verify the GitHub release asset, update Dockerfile to the new release tag, deploy, run deployment verification, smoke-test ${WATCHDOG_POST_BUILD_SMOKE_URLS}, and then clear the watchdog state.
 
 Self-improvement rules:
+- Do not edit the repo during a healthy running build just to "improve" the workflow. Stay read-only unless a concrete failure or missing guardrail was observed.
 - Prefer durable fixes over one-off commands. Patch scripts, docs, and verification so the next run avoids the same failure.
 - Record recurring Hetzner, GitHub token, upload, and compiler issues in docs/workflows/watchdog-deployment.md or docs/workflows/hetzner-build.md.
 - Tighten timeouts, retries, and verification when you find a gap, but keep the workflow idempotent.
+- If you do edit the repo, leave it clean and pushed before the watchdog is allowed to start another VM.
 - Stop the cron loop by uninstalling it when the workflow is in a terminal completed or failed state.
 EOF
     cat "${PROMPT_FILE}"
