@@ -23,7 +23,8 @@ export PATH="${TOOL_DIR}:${PATH}"
 DEPS_FILE="${SRC_DIR}/DEPS"
 CIPD_VERSION=""
 if [ -f "${DEPS_FILE}" ]; then
-  CIPD_VERSION="$(python3 - <<'PY' "${DEPS_FILE}" 2>/dev/null || true)
+  CIPD_VERSION="$(
+    python3 - "${DEPS_FILE}" 2>/dev/null <<'PY' || true
 import re, sys
 text=open(sys.argv[1], 'r', encoding='utf-8', errors='ignore').read()
 # Try to capture an explicit version entry near the rust-toolchain cipd stanza.
@@ -36,13 +37,13 @@ if not m:
     # Fallback: capture any 'version:' style tag.
     mver=re.search(r"version:\s*([A-Za-z0-9_\.\-]+)", text)
     if mver:
-        print(mver.group(0))
+        print(mver.group(1))
         sys.exit(0)
     print("")
 else:
     print(m.group(1))
 PY
-)"
+  )"
 fi
 
 mkdir -p "${DEST_DIR}"
