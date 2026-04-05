@@ -21,11 +21,11 @@ ensure_node() {
   if [ -d "${SRC_DIR}/third_party/node" ]; then
     # Try explicit 'Expected version vX.Y.Z' marker first.
     expected="$(grep -R -nE 'Expected version[^v]*v[0-9]+\.[0-9]+\.[0-9]+' "${SRC_DIR}/third_party/node" 2>/dev/null | \
-      sed -E 's/.*(v[0-9]+\.[0-9]+\.[0-9]+).*/\1/' | head -n1 || true)"
+      grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -n1 || true)"
     if [ -z "${expected}" ]; then
       # Fallback to NODE_VERSION or node_version assignments.
       expected="$(grep -R -nE '(NODE_VERSION|node_version)[^0-9]*([0-9]+\.[0-9]+\.[0-9]+)' "${SRC_DIR}/third_party/node" 2>/dev/null | \
-        sed -E 's/.*([0-9]+\.[0-9]+\.[0-9]+).*/\1/' | head -n1 || true)"
+        grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1 || true)"
     fi
   fi
   if [ -z "${expected}" ]; then

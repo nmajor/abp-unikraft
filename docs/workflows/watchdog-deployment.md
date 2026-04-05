@@ -168,3 +168,4 @@ The prompt should only handle:
 - 2026-04-04: Re-architected the watchdog around a deterministic remote supervisor instead of having the prompt participate in infrastructure control.
 - 2026-04-05: Made the remote supervisor hard-reset and clean its ephemeral repo checkout before every restart so stale modified files cannot block `git checkout --detach`.
 - 2026-04-05: Hardened `scripts/ensure-node-esbuild.sh` so version discovery fallbacks survive `set -euo pipefail` when `grep` finds no matches, and so failed Node/esbuild downloads emit explicit errors instead of a vague step header.
+- 2026-04-05: Fixed Node version parsing in `scripts/ensure-node-esbuild.sh` to preserve multi-digit majors like `v22.11.0`; the old greedy extraction was truncating this to `v2.11.0` and causing false download failures.
