@@ -1,6 +1,6 @@
 FROM debian:bookworm-slim AS downloader
 
-RUN apt-get update && apt-get install -y --no-install-recommends wget ca-certificates binutils upx-ucl \
+RUN apt-get update && apt-get install -y --no-install-recommends wget ca-certificates binutils \
     && rm -rf /var/lib/apt/lists/*
 
 # Download gost — lightweight proxy forwarder for authenticated proxy support.
@@ -49,9 +49,7 @@ RUN wget -q "https://github.com/nmajor/abp-unikraft/releases/download/${ABP_STEA
     && find /opt/abp/abp-chrome/locales -type f ! -name 'en-US.pak' -delete 2>/dev/null || true \
     # Strip shared libraries
     && find /opt/abp/abp-chrome -name '*.so' -exec strip --strip-unneeded {} + 2>/dev/null || true \
-    && find /opt/abp/abp-chrome -name '*.so.*' -exec strip --strip-unneeded {} + 2>/dev/null || true \
-    # UPX gives us a meaningful initramfs win on the main Chromium launcher.
-    && upx --best --lzma /opt/abp/abp-chrome/abp >/dev/null 2>&1 || true
+    && find /opt/abp/abp-chrome -name '*.so.*' -exec strip --strip-unneeded {} + 2>/dev/null || true
 
 FROM debian:bookworm-slim AS runtime-packager
 
