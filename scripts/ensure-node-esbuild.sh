@@ -10,6 +10,8 @@ SRC_DIR="${1:?usage: $0 /path/to/chromium/src}"
 
 log() { printf '  %s\n' "$*"; }
 
+fail() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
+
 ensure_node() {
   local node_dir="${SRC_DIR}/third_party/node/linux/node-linux-x64/bin"
   local node_bin="${node_dir}/node"
@@ -19,16 +21,17 @@ ensure_node() {
   if [ -d "${SRC_DIR}/third_party/node" ]; then
     # Try explicit 'Expected version vX.Y.Z' marker first.
     expected="$(grep -R -nE 'Expected version[^v]*v[0-9]+\.[0-9]+\.[0-9]+' "${SRC_DIR}/third_party/node" 2>/dev/null | \
-      sed -E 's/.*(v[0-9]+\.[0-9]+\.[0-9]+).*/\1/' | head -n1)"
+      sed -E 's/.*(v[0-9]+\.[0-9]+\.[0-9]+).*/\1/' | head -n1 || true)"
     if [ -z "${expected}" ]; then
       # Fallback to NODE_VERSION or node_version assignments.
       expected="$(grep -R -nE '(NODE_VERSION|node_version)[^0-9]*([0-9]+\.[0-9]+\.[0-9]+)' "${SRC_DIR}/third_party/node" 2>/dev/null | \
-        sed -E 's/.*([0-9]+\.[0-9]+\.[0-9]+).*/\1/' | head -n1)"
+        sed -E 's/.*([0-9]+\.[0-9]+\.[0-9]+).*/\1/' | head -n1 || true)"
     fi
   fi
   if [ -z "${expected}" ]; then
     # Conservative default known-good for Chromium 142 era.
     expected="v22.11.0"
+    log "No explicit Node version marker found; falling back to ${expected}"
   fi
 
   # Normalize to leading 'v'.
@@ -61,7 +64,9 @@ ensure_node() {
   else
     curl -fsSL -o "${tarball}" "https://nodejs.org/dist/${expected}/node-v${expected#v}-linux-x64.tar.xz"
   fi
+  [ -s "${tarball}" ] || fail "Node tarball download failed for ${expected}"
   tar -xJf "${tarball}" -C /tmp/
+  [ -x "${extract}/bin/node" ] || fail "Downloaded Node archive did not contain ${extract}/bin/node"
   cp "${extract}/bin/node" "${node_bin}"
   chmod +x "${node_bin}"
 }
@@ -102,6 +107,7 @@ PY
   fi
   if [ -z "${ver}" ]; then
     ver="0.25.1"
+    log "No esbuild pin found in package.json; falling back to ${ver}"
   fi
 
   log "Installing esbuild ${ver}"
@@ -112,9 +118,11 @@ PY
   else
     curl -fsSL -o "${tgz}" "https://registry.npmjs.org/@esbuild/linux-x64/-/linux-x64-${ver}.tgz"
   fi
+  [ -s "${tgz}" ] || fail "esbuild archive download failed for ${ver}"
   local tmpdir
   tmpdir="$(mktemp -d)"
   tar -xzf "${tgz}" -C "${tmpdir}"
+  [ -x "${tmpdir}/package/bin/esbuild" ] || fail "Downloaded esbuild archive did not contain package/bin/esbuild"
   cp "${tmpdir}/package/bin/esbuild" "${es_bin}"
   chmod +x "${es_bin}"
   rm -rf "${tmpdir}"

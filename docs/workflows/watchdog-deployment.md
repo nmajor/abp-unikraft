@@ -166,3 +166,5 @@ The prompt should only handle:
 
 - 2026-04-04: Switched GN bootstrap to prefer a prebuilt GN binary from CIPD in `scripts/build-on-fp-chromium.sh`.
 - 2026-04-04: Re-architected the watchdog around a deterministic remote supervisor instead of having the prompt participate in infrastructure control.
+- 2026-04-05: Made the remote supervisor hard-reset and clean its ephemeral repo checkout before every restart so stale modified files cannot block `git checkout --detach`.
+- 2026-04-05: Hardened `scripts/ensure-node-esbuild.sh` so version discovery fallbacks survive `set -euo pipefail` when `grep` finds no matches, and so failed Node/esbuild downloads emit explicit errors instead of a vague step header.

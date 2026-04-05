@@ -123,6 +123,8 @@ ensure_repo() {
         git clone --branch "${repo_ref}" "${repo_url}" "${REPO_DIR}"
     else
         git -C "${REPO_DIR}" fetch origin "${repo_ref}"
+        git -C "${REPO_DIR}" reset --hard HEAD
+        git -C "${REPO_DIR}" clean -fd
     fi
 
     git -C "${REPO_DIR}" checkout --detach "${commit_sha}"
