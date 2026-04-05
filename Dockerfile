@@ -51,35 +51,79 @@ RUN wget -q "https://github.com/nmajor/abp-unikraft/releases/download/${ABP_STEA
     && find /opt/abp/abp-chrome -name '*.so' -exec strip --strip-unneeded {} + 2>/dev/null || true \
     && find /opt/abp/abp-chrome -name '*.so.*' -exec strip --strip-unneeded {} + 2>/dev/null || true
 
-FROM debian:bookworm-slim
+FROM debian:bookworm-slim AS runtime-packager
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install minimal shared libraries Chromium needs at runtime.
+# Install only the packages needed to assemble a minimal runtime rootfs. The
+# final image is built from scratch so KraftCloud does not have to unpack an
+# entire Debian filesystem into guest memory.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libx11-6 libx11-xcb1 libxcb1 libxcomposite1 libxcursor1 \
-    libxdamage1 libxext6 libxfixes3 libxi6 libxrandr2 \
-    libxrender1 libxtst6 libxkbcommon0 libxshmfence1 \
-    libdrm2 libgbm1 libegl1 libgl1 \
-    libgtk-3-0 libatk1.0-0 libatk-bridge2.0-0 libatspi2.0-0 \
-    libpango-1.0-0 libpangocairo-1.0-0 libcairo2 \
-    libnss3 libnspr4 \
-    libfontconfig1 libfreetype6 fonts-liberation \
-    libasound2 libdbus-1-3 libcups2 \
-    socat \
+    busybox-static \
     ca-certificates \
-    && rm -rf /var/lib/apt/lists/* /var/cache/apt/* \
-    && rm -rf /usr/share/doc /usr/share/man /usr/share/info /usr/share/lintian \
-    && rm -rf /usr/share/locale /usr/share/i18n \
-    && rm -rf /var/log/* /tmp/*
+    fontconfig-config \
+    fonts-liberation \
+    libasound2 \
+    libatk1.0-0 \
+    libatk-bridge2.0-0 \
+    libatspi2.0-0 \
+    libgbm1 \
+    libnspr4 \
+    libnss3 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxfixes3 \
+    libxkbcommon0 \
+    libxrandr2 \
+    libxtst6 \
+    socat \
+    && rm -rf /var/lib/apt/lists/* /var/cache/apt/*
 
 COPY --from=downloader /opt/abp /opt/abp
 COPY --from=downloader /usr/local/bin/gost /usr/local/bin/gost
-
-RUN mkdir -p /tmp/abp-data /tmp/abp-sessions
-
 COPY wrapper.sh /wrapper.sh
-RUN chmod +x /wrapper.sh
+
+RUN set -eux; \
+    mkdir -p \
+      /rootfs/opt \
+      /rootfs/usr/local/bin \
+      /rootfs/usr/bin \
+      /rootfs/usr/share/fonts/truetype \
+      /rootfs/bin \
+      /rootfs/etc \
+      /rootfs/lib64 \
+      /rootfs/tmp/abp-data \
+      /rootfs/tmp/abp-sessions \
+      /rootfs/var/cache; \
+    cp -a /opt/abp /rootfs/opt/; \
+    install -Dm755 /usr/local/bin/gost /rootfs/usr/local/bin/gost; \
+    install -Dm755 /usr/bin/socat /rootfs/usr/bin/socat; \
+    install -Dm755 /bin/busybox /rootfs/bin/busybox; \
+    ln -s busybox /rootfs/bin/sh; \
+    ln -s busybox /rootfs/bin/sleep; \
+    install -Dm755 /wrapper.sh /rootfs/wrapper.sh; \
+    cp -a /etc/ssl /rootfs/etc/; \
+    cp -a /etc/fonts /rootfs/etc/; \
+    cp -a /etc/nsswitch.conf /rootfs/etc/; \
+    cp -a /etc/hosts /rootfs/etc/; \
+    cp -a /etc/resolv.conf /rootfs/etc/; \
+    cp -a /usr/share/fontconfig /rootfs/usr/share/; \
+    cp -a /usr/share/fonts/truetype/liberation2 /rootfs/usr/share/fonts/truetype/; \
+    cp -a /usr/share/zoneinfo /rootfs/usr/share/; \
+    cp -a /var/cache/fontconfig /rootfs/var/cache/; \
+    printf 'root:x:0:0:root:/root:/bin/sh\n' > /rootfs/etc/passwd; \
+    printf 'root:x:0:\n' > /rootfs/etc/group; \
+    ldd /opt/abp/abp-chrome/abp /usr/bin/socat \
+      | awk '/=> \\/|^\\// {for (i = 1; i <= NF; i++) if ($i ~ /^\\//) print $i}' \
+      | grep -v '^/opt/abp/' \
+      | sort -u \
+      | while read -r lib; do \
+          install -Dm755 "$(readlink -f "$lib")" "/rootfs${lib}"; \
+        done
+
+FROM scratch
+
+COPY --from=runtime-packager /rootfs /
 
 EXPOSE 15678
 EXPOSE 1080

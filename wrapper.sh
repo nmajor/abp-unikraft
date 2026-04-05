@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 set -e
 
 ABP_INTERNAL_PORT=15679
@@ -7,7 +7,7 @@ ABP_BINARY="/opt/abp/abp-chrome/abp"
 
 # Stealth configuration — override via environment variables.
 # These map to fingerprint-chromium's native flags.
-ABP_FINGERPRINT_SEED="${ABP_FINGERPRINT_SEED:-$RANDOM}"
+ABP_FINGERPRINT_SEED="${ABP_FINGERPRINT_SEED:-$$}"
 ABP_FINGERPRINT_PLATFORM="${ABP_FINGERPRINT_PLATFORM:-windows}"
 ABP_TIMEZONE="${ABP_TIMEZONE:-America/New_York}"
 ABP_FINGERPRINT_BRAND="${ABP_FINGERPRINT_BRAND:-Chrome}"
@@ -26,7 +26,8 @@ ABP_WINDOW_SIZE="${ABP_WINDOW_SIZE:-1280,800}"
 PROXY_ARGS=""
 GOST_LOCAL_PORT=18080
 if [ -n "${ABP_PROXY_SERVER:-}" ]; then
-    if echo "${ABP_PROXY_SERVER}" | grep -q '@'; then
+    case "${ABP_PROXY_SERVER}" in
+        *@*)
         # Authenticated proxy — start local gost forwarder
         echo "  Proxy has credentials — starting local gost forwarder on :${GOST_LOCAL_PORT}"
         /usr/local/bin/gost -L "http://:${GOST_LOCAL_PORT}" -F "${ABP_PROXY_SERVER}" &
@@ -40,10 +41,12 @@ if [ -n "${ABP_PROXY_SERVER:-}" ]; then
             echo "  WARNING: gost failed to start, falling back to direct proxy"
             PROXY_ARGS="--proxy-server=${ABP_PROXY_SERVER}"
         fi
-    else
+        ;;
+        *)
         # No credentials — pass directly to Chrome
         PROXY_ARGS="--proxy-server=${ABP_PROXY_SERVER}"
-    fi
+        ;;
+    esac
     if [ -n "${ABP_PROXY_BYPASS:-}" ]; then
         PROXY_ARGS="${PROXY_ARGS} --proxy-bypass-list=${ABP_PROXY_BYPASS}"
     fi
@@ -54,16 +57,20 @@ GOST_PUBLIC_PORT="${ABP_GOST_PUBLIC_PORT:-1080}"
 GOST_PUBLIC_USER="${ABP_GOST_PUBLIC_USER:-capsolver}"
 GOST_PUBLIC_PASS="${ABP_GOST_PUBLIC_PASS:-}"
 
-if [ -n "${GOST_PUBLIC_PASS:-}" ] && echo "${ABP_PROXY_SERVER}" | grep -q '@'; then
-    echo "  Starting public HTTP proxy on :${GOST_PUBLIC_PORT} for CapSolver"
-    /usr/local/bin/gost -L "http://${GOST_PUBLIC_USER}:${GOST_PUBLIC_PASS}@:${GOST_PUBLIC_PORT}" -F "${ABP_PROXY_SERVER}" &
-    GOST_PUBLIC_PID=$!
-    sleep 1
-    if kill -0 $GOST_PUBLIC_PID 2>/dev/null; then
-        echo "  Public HTTP proxy running (PID ${GOST_PUBLIC_PID})"
-    else
-        echo "  WARNING: Public HTTP proxy failed to start"
-    fi
+if [ -n "${GOST_PUBLIC_PASS:-}" ]; then
+    case "${ABP_PROXY_SERVER:-}" in
+        *@*)
+            echo "  Starting public HTTP proxy on :${GOST_PUBLIC_PORT} for CapSolver"
+            /usr/local/bin/gost -L "http://${GOST_PUBLIC_USER}:${GOST_PUBLIC_PASS}@:${GOST_PUBLIC_PORT}" -F "${ABP_PROXY_SERVER}" &
+            GOST_PUBLIC_PID=$!
+            sleep 1
+            if kill -0 $GOST_PUBLIC_PID 2>/dev/null; then
+                echo "  Public HTTP proxy running (PID ${GOST_PUBLIC_PID})"
+            else
+                echo "  WARNING: Public HTTP proxy failed to start"
+            fi
+            ;;
+    esac
 fi
 
 echo "Starting ABP Stealth on internal port ${ABP_INTERNAL_PORT}..."
@@ -92,21 +99,13 @@ socat TCP-LISTEN:${EXTERNAL_PORT},fork,reuseaddr,bind=0.0.0.0 TCP:127.0.0.1:${AB
 #
 # stealth-extra edits handle: pointer/hover media queries, screen properties,
 # window.outerWidth/Height, navigator.deviceMemory, automation flag removal.
-FP_ARGS=(
-    --fingerprint="${ABP_FINGERPRINT_SEED}"
-    --fingerprint-platform="${ABP_FINGERPRINT_PLATFORM}"
-    --fingerprint-brand="${ABP_FINGERPRINT_BRAND}"
-    --fingerprint-hardware-concurrency="${ABP_FINGERPRINT_HARDWARE_CONCURRENCY}"
-    --timezone="${ABP_TIMEZONE}"
-)
-
-if [ -n "${ABP_DISABLE_SPOOFING}" ]; then
-    FP_ARGS+=(--disable-spoofing="${ABP_DISABLE_SPOOFING}")
-fi
-
-exec "${ABP_BINARY}" \
+set -- "${ABP_BINARY}" \
     --abp-port="${ABP_INTERNAL_PORT}" \
-    "${FP_ARGS[@]}" \
+    --fingerprint="${ABP_FINGERPRINT_SEED}" \
+    --fingerprint-platform="${ABP_FINGERPRINT_PLATFORM}" \
+    --fingerprint-brand="${ABP_FINGERPRINT_BRAND}" \
+    --fingerprint-hardware-concurrency="${ABP_FINGERPRINT_HARDWARE_CONCURRENCY}" \
+    --timezone="${ABP_TIMEZONE}" \
     --headless=new \
     --no-sandbox \
     --disable-dev-shm-usage \
@@ -117,5 +116,16 @@ exec "${ABP_BINARY}" \
     --abp-window-size="${ABP_WINDOW_SIZE}" \
     --disable-sync \
     --no-first-run \
-    --lang=en-US \
-    ${PROXY_ARGS}
+    --lang=en-US
+
+if [ -n "${ABP_DISABLE_SPOOFING}" ]; then
+    set -- "$@" --disable-spoofing="${ABP_DISABLE_SPOOFING}"
+fi
+
+if [ -n "${PROXY_ARGS}" ]; then
+    # Intentionally split two flag tokens when bypass is present.
+    # shellcheck disable=SC2086
+    set -- "$@" ${PROXY_ARGS}
+fi
+
+exec "$@"
