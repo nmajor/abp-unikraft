@@ -22,6 +22,10 @@ RUN wget -q "https://github.com/nmajor/abp-unikraft/releases/download/${ABP_STEA
     && tar -xzf /tmp/abp.tar.gz -C /opt/abp \
     && rm /tmp/abp.tar.gz \
     && chmod +x /opt/abp/abp-chrome/abp \
+    # Strip large ELF executables from the release bundle. The Hetzner-built
+    # artifacts are functionally correct but not fully stripped, and leaving
+    # them untouched bloats the KraftCloud rootfs enough to fail unikernel boot.
+    && find /opt/abp/abp-chrome -maxdepth 1 -type f -perm -111 -exec strip --strip-unneeded {} + 2>/dev/null || true \
     # Remove optional/unnecessary components
     && rm -rf /opt/abp/abp-chrome/MEIPreload \
     && rm -rf /opt/abp/abp-chrome/WidevineCdm \
