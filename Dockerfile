@@ -26,6 +26,17 @@ RUN wget -q "https://github.com/nmajor/abp-unikraft/releases/download/${ABP_STEA
     # artifacts are functionally correct but not fully stripped, and leaving
     # them untouched bloats the KraftCloud rootfs enough to fail unikernel boot.
     && find /opt/abp/abp-chrome -maxdepth 1 -type f -perm -111 -exec strip --strip-unneeded {} + 2>/dev/null || true \
+    # Drop large non-startup payloads that are not part of the browser's loader
+    # dependency graph in our runtime profile. These are safe wins for the
+    # unikernel rootfs budget.
+    && rm -f /opt/abp/abp-chrome/chromedriver \
+    && rm -f /opt/abp/abp-chrome/chrome_crashpad_handler \
+    && rm -f /opt/abp/abp-chrome/libVkLayer_khronos_validation.so \
+    && rm -f /opt/abp/abp-chrome/libdevice_vr.so \
+    && rm -f /opt/abp/abp-chrome/libcomponents_feed_feature_list.so \
+    && rm -f /opt/abp/abp-chrome/libthird_party_icu_icui18n_hidden_visibility.so \
+    && rm -f /opt/abp/abp-chrome/libicuuc_hidden_visibility.so \
+    && find /opt/abp/abp-chrome -name '*.TOC' -delete 2>/dev/null || true \
     # Remove optional/unnecessary components
     && rm -rf /opt/abp/abp-chrome/MEIPreload \
     && rm -rf /opt/abp/abp-chrome/WidevineCdm \
