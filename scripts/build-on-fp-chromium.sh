@@ -265,6 +265,7 @@ text = text.replace(
 
 flags_state.write_text(text)
 PY
+python3 /root/abp-unikraft/scripts/patch_flags_state.py $SRC_DIR
 perl -0pi -e 's|deps = \[\n    "//base",|deps = [\n    "//base",\n    "//components/ungoogled:ungoogled_switches",|s' \
     "${SRC_DIR}/third_party/blink/common/BUILD.gn"
 perl -0pi -e 's|void UpdateUserAgentMetadataFingerprint\(UserAgentMetadata\* metadata\);|BLINK_COMMON_EXPORT void UpdateUserAgentMetadataFingerprint(UserAgentMetadata* metadata);|g; s|std::string GetUserAgentFingerprintBrandInfo\(\);|BLINK_COMMON_EXPORT std::string GetUserAgentFingerprintBrandInfo();|g' \
