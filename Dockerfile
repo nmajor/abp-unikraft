@@ -1,6 +1,6 @@
 FROM debian:bookworm-slim AS downloader
 
-RUN apt-get update && apt-get install -y --no-install-recommends wget ca-certificates binutils \
+RUN apt-get update && apt-get install -y --no-install-recommends wget ca-certificates binutils upx-ucl \
     && rm -rf /var/lib/apt/lists/*
 
 # Download gost — lightweight proxy forwarder for authenticated proxy support.
@@ -49,7 +49,9 @@ RUN wget -q "https://github.com/nmajor/abp-unikraft/releases/download/${ABP_STEA
     && find /opt/abp/abp-chrome/locales -type f ! -name 'en-US.pak' -delete 2>/dev/null || true \
     # Strip shared libraries
     && find /opt/abp/abp-chrome -name '*.so' -exec strip --strip-unneeded {} + 2>/dev/null || true \
-    && find /opt/abp/abp-chrome -name '*.so.*' -exec strip --strip-unneeded {} + 2>/dev/null || true
+    && find /opt/abp/abp-chrome -name '*.so.*' -exec strip --strip-unneeded {} + 2>/dev/null || true \
+    # UPX gives us a meaningful initramfs win on the main Chromium launcher.
+    && upx --best --lzma /opt/abp/abp-chrome/abp >/dev/null 2>&1 || true
 
 FROM debian:bookworm-slim AS runtime-packager
 
@@ -113,13 +115,13 @@ RUN set -eux; \
     if [ -d /var/cache/fontconfig ]; then cp -a /var/cache/fontconfig /rootfs/var/cache/; fi; \
     printf 'root:x:0:0:root:/root:/bin/sh\n' > /rootfs/etc/passwd; \
     printf 'root:x:0:\n' > /rootfs/etc/group; \
-    ldd /opt/abp/abp-chrome/abp /usr/bin/socat \
-      | awk '/=> \\/|^\\// {for (i = 1; i <= NF; i++) if ($i ~ /^\\//) print $i}' \
+    deps="$(ldd /opt/abp/abp-chrome/abp /usr/bin/socat 2>/dev/null \
+      | sed -n -e 's/.*=> \\(\\/[^ ]*\\).*/\\1/p' -e 's#^\\(/[^ ]*\\) .*#\\1#p' \
       | grep -v '^/opt/abp/' \
-      | sort -u \
-      | while read -r lib; do \
-          install -Dm755 "$(readlink -f "$lib")" "/rootfs${lib}"; \
-        done
+      | sort -u)"; \
+    for lib in ${deps}; do \
+      install -Dm755 "$(readlink -f "$lib")" "/rootfs${lib}"; \
+    done
 
 FROM scratch
 
