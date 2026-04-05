@@ -210,6 +210,10 @@ echo "  Restoring toolchain download domains..."
 sed -i 's|commondatastorage\.9oo91eapis\.qjz9zk|commondatastorage.googleapis.com|g' \
     "${SRC_DIR}/tools/clang/scripts/update.py" \
     "${SRC_DIR}/tools/clang/scripts/sync_deps.py" || true
+sed -i 's|commondatastorage.9oo91eapis.qjz9zk|commondatastorage.googleapis.com|g' "${SRC_DIR}/tools/rust/update_rust.py" || true
+
+echo "  Downloading Chromium Rust toolchain..."
+python3 "${SRC_DIR}/tools/rust/update_rust.py"
 
 echo "  Downloading Chromium Clang toolchain..."
 python3 "${SRC_DIR}/tools/clang/scripts/update.py"
