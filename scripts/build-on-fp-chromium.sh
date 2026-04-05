@@ -203,6 +203,17 @@ echo "  Ensuring Rust toolchain..."
 chmod +x "${PATCH_REPO}/scripts/ensure-rust-toolchain.sh"
 bash "${PATCH_REPO}/scripts/ensure-rust-toolchain.sh" "${SRC_DIR}"
 
+# The source tarball does not include Chromium's prebuilt LLVM toolchain, and
+# domain substitution can break the download URLs in Chromium helper scripts.
+# Restore the real Google storage domains before invoking Chromium's updater.
+echo "  Restoring toolchain download domains..."
+sed -i 's|commondatastorage\.9oo91eapis\.qjz9zk|commondatastorage.googleapis.com|g' \
+    "${SRC_DIR}/tools/clang/scripts/update.py" \
+    "${SRC_DIR}/tools/clang/scripts/sync_deps.py" || true
+
+echo "  Downloading Chromium Clang toolchain..."
+python3 "${SRC_DIR}/tools/clang/scripts/update.py"
+
 
 echo "  Chromium source patched with fingerprint-chromium stealth patches."
 
