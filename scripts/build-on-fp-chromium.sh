@@ -55,6 +55,12 @@ apt-get install -y \
     libcups2-dev libdrm-dev libgbm-dev libgtk-3-dev libkrb5-dev \
     libnss3-dev libpango1.0-dev libpulse-dev libudev-dev libva-dev \
     libxcomposite-dev libxdamage-dev libxrandr-dev libxshmfence-dev \
+    libegl-dev libevent-dev libflac-dev libgles-dev libharfbuzz-dev \
+    libjpeg-dev libminizip-dev libopus-dev libpci-dev libpng-dev \
+    libre2-dev libsnappy-dev libspeechd-dev libvulkan-dev libwayland-dev \
+    libwebp-dev libx11-dev libx11-xcb-dev libxcb1-dev libxcursor-dev \
+    libxext-dev libxfixes-dev libxi-dev libxinerama-dev libxkbcommon-dev \
+    libxkbfile-dev libxtst-dev mesa-common-dev wayland-protocols \
     lsb-release ninja-build pkg-config python3 python3-pip \
     sudo wget xz-utils unzip file
 
@@ -342,6 +348,14 @@ enable_nacl = false
 blink_symbol_level = 0
 GNARGS
 fi
+
+# We are building on Ubuntu directly, not against Chromium's Debian sysroot.
+# Keep GN aligned with the documented Hetzner workflow so GN/ninja do not look
+# for sysroot-only helpers like cups-config under build/linux/*-sysroot.
+cat >> "${RELEASE_DIR}/args.gn" <<'GNARGS'
+use_sysroot = false
+use_cups = false
+GNARGS
 
 # GN: prefer prebuilt binary over local bootstrap (more reliable on Ubuntu 22.04).
 # This avoids libstdc++ C++20 ranges issues when building GN with clang+libstdc++11.
