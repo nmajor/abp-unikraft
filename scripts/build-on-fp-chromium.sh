@@ -286,6 +286,12 @@ if [ -f "build/install-build-deps.sh" ]; then
     sudo bash build/install-build-deps.sh --no-prompt --no-chromeos-fonts --no-arm --no-nacl || true
 fi
 
+# Ensure Node.js and esbuild expected by Chromium/DevTools are present in this
+# tarball-based checkout (no gclient runhooks in this flow).
+echo "  Ensuring Node.js and esbuild toolchain..."
+chmod +x "${PATCH_REPO}/scripts/ensure-node-esbuild.sh"
+bash "${PATCH_REPO}/scripts/ensure-node-esbuild.sh" "${SRC_DIR}"
+
 # -------------------------------------------------------------------
 # Step 7: Overlay ABP protocol code
 # -------------------------------------------------------------------
