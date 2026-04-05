@@ -110,7 +110,7 @@ RUN set -eux; \
     cp -a /usr/share/fontconfig /rootfs/usr/share/; \
     cp -a /usr/share/fonts/truetype /rootfs/usr/share/fonts/; \
     cp -a /usr/share/zoneinfo /rootfs/usr/share/; \
-    cp -a /var/cache/fontconfig /rootfs/var/cache/; \
+    if [ -d /var/cache/fontconfig ]; then cp -a /var/cache/fontconfig /rootfs/var/cache/; fi; \
     printf 'root:x:0:0:root:/root:/bin/sh\n' > /rootfs/etc/passwd; \
     printf 'root:x:0:\n' > /rootfs/etc/group; \
     ldd /opt/abp/abp-chrome/abp /usr/bin/socat \
