@@ -108,7 +108,7 @@ RUN set -eux; \
     cp -a /etc/hosts /rootfs/etc/; \
     cp -a /etc/resolv.conf /rootfs/etc/; \
     cp -a /usr/share/fontconfig /rootfs/usr/share/; \
-    cp -a /usr/share/fonts/truetype/liberation2 /rootfs/usr/share/fonts/truetype/; \
+    cp -a /usr/share/fonts/truetype /rootfs/usr/share/fonts/; \
     cp -a /usr/share/zoneinfo /rootfs/usr/share/; \
     cp -a /var/cache/fontconfig /rootfs/var/cache/; \
     printf 'root:x:0:0:root:/root:/bin/sh\n' > /rootfs/etc/passwd; \
