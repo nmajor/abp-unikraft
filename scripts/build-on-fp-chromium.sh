@@ -111,6 +111,10 @@ fi
 echo "  Using ABP-unikraft commit: $(git rev-parse HEAD)"
 echo "  Patches at: ${PATCH_REPO}"
 
+echo "  Running repo preflight gauntlet..."
+chmod +x "${PATCH_REPO}/scripts/preflight-fp-chromium-build.sh"
+bash "${PATCH_REPO}/scripts/preflight-fp-chromium-build.sh" repo "${PATCH_REPO}"
+
 # -------------------------------------------------------------------
 # Step 4: Clone fingerprint-chromium
 # -------------------------------------------------------------------
@@ -406,8 +410,8 @@ if [ ! -x "${SRC_DIR}/out/Release/gn" ]; then
     python3 tools/gn/bootstrap/bootstrap.py --skip-generate-buildfiles -j "${NPROC}" -o out/Release/gn
 fi
 
-cd "${SRC_DIR}"
-./out/Release/gn gen "${RELEASE_DIR}" --fail-on-unused-args
+echo "  Running source preflight gauntlet..."
+bash "${PATCH_REPO}/scripts/preflight-fp-chromium-build.sh" src "${SRC_DIR}" "${PATCH_REPO}"
 
 echo "  Building with ${NPROC} cores..."
 ninja -C "${RELEASE_DIR}" -j "${NPROC}" chrome chromedriver

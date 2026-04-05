@@ -64,6 +64,11 @@ resolve_github_token() {
     [ -n "${LOCAL_GH_TOKEN}" ]
 }
 
+run_local_preflight() {
+    log "Running local repo preflight gauntlet..."
+    bash "${PROJECT_DIR}/scripts/preflight-fp-chromium-build.sh" repo "${PROJECT_DIR}"
+}
+
 # ===================================================================
 # CLEANUP — always destroy the server, no matter what happens
 # ===================================================================
@@ -86,6 +91,8 @@ trap cleanup EXIT
 # ===================================================================
 # Step 1: Find SSH key ID
 # ===================================================================
+run_local_preflight
+
 log "Finding SSH key..."
 SSH_KEY_ID=$(hetzner_api GET "/ssh_keys?name=${SSH_KEY_NAME}" | \
     python3 -c "import json,sys; d=json.load(sys.stdin); print(d['ssh_keys'][0]['id'])" 2>/dev/null || echo "")

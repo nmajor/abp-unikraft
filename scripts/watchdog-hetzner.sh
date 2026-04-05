@@ -300,6 +300,13 @@ git_preflight() {
         return 1
     fi
 
+    if ! bash "${PROJECT_DIR}/scripts/preflight-fp-chromium-build.sh" repo "${PROJECT_DIR}" >/dev/null; then
+        WATCHDOG_LAST_STATUS="repo preflight gauntlet failed"
+        state_write
+        audit_log "preflight failed: repo gauntlet failed"
+        return 1
+    fi
+
     WATCHDOG_REPO_SHA="${local_sha}"
     state_write
     return 0

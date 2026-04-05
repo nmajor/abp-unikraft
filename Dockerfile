@@ -15,7 +15,7 @@ RUN wget -q "https://github.com/go-gost/gost/releases/download/v${GOST_VERSION}/
 # Download our stealth-patched ABP binary from GitHub Releases.
 # Built on fingerprint-chromium base with ABP protocol + stealth-extra patches.
 # To build a new version: scripts/build-on-fp-chromium.sh on a Hetzner CCX33.
-ARG ABP_STEALTH_VERSION=stealth-fp-20260404-015835
+ARG ABP_STEALTH_VERSION=stealth-fp-20260405-154019
 RUN wget -q "https://github.com/nmajor/abp-unikraft/releases/download/${ABP_STEALTH_VERSION}/abp-stealth-linux-x64.tar.gz" \
     -O /tmp/abp.tar.gz \
     && mkdir -p /opt/abp \

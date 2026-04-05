@@ -37,6 +37,9 @@ The prompt is intentionally narrow now:
 ## Commands
 
 ```bash
+# Run the deterministic local gauntlet before starting or restarting a flow
+./scripts/preflight-fp-chromium-build.sh repo
+
 # Start or poll the current flow
 ./scripts/watchdog-hetzner.sh cycle
 
@@ -46,7 +49,7 @@ The prompt is intentionally narrow now:
 # Render the repair prompt that would be sent to Codex
 ./scripts/watchdog-hetzner.sh prompt
 
-# Install the 15-minute cron heartbeat
+# Install the 5-minute cron heartbeat
 ./scripts/watchdog-hetzner.sh install-cron
 
 # Remove the cron heartbeat
@@ -108,6 +111,7 @@ The watchdog writes:
 ## Flow Semantics
 
 Healthy build:
+- local repo gauntlet must already be clean before the flow starts
 - cron polls
 - local watchdog asks remote supervisor for `status`
 - if remote phase is `building`, watchdog just records the check and exits
@@ -122,6 +126,7 @@ Failed build:
 
 Repair restart:
 - next cycle checks if local `HEAD` is clean and pushed
+- next cycle reruns `scripts/preflight-fp-chromium-build.sh repo`
 - if the pushed commit is newer than the failed commit, watchdog calls remote `restart <sha>`
 - restart happens on the same VM
 
@@ -149,6 +154,7 @@ These should stay in code, not in the prompt:
 - saving failure logs
 - enforcing the 24-hour timeout
 - cron skip/lock accounting
+- running the repo preflight gauntlet before provisioning/restarting work
 
 The prompt should only handle:
 - repo-side root cause analysis
@@ -171,3 +177,4 @@ The prompt should only handle:
 - 2026-04-05: Hardened `scripts/ensure-node-esbuild.sh` so version discovery fallbacks survive `set -euo pipefail` when `grep` finds no matches, and so failed Node/esbuild downloads emit explicit errors instead of a vague step header.
 - 2026-04-05: Fixed Node version parsing in `scripts/ensure-node-esbuild.sh` to preserve multi-digit majors like `v22.11.0`; the old greedy extraction was truncating this to `v2.11.0` and causing false download failures.
 - 2026-04-05: Disabled VAAPI in `scripts/build-on-fp-chromium.sh` for the Ubuntu 22.04 build path because the host `libva-dev` headers do not expose the AV1 `refresh_frame_flags` fields Chromium 142 expects. Treat this as an environment compatibility workaround, not a browser feature regression in the stealth layer.
+- 2026-04-05: Added `scripts/preflight-fp-chromium-build.sh` and wired it into the watchdog, standalone Hetzner build script, and remote build path so every future build goes through a deterministic repo gauntlet locally and a source + `gn`/`ninja -n` gauntlet on the VM before full compilation.

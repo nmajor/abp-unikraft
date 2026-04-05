@@ -15,6 +15,25 @@ API Token: $HETZNER_API_TOKEN (in ~/.zshrc)
 SSH Key: abp-build-key (ID: 110221547), uses ~/.ssh/id_ed25519
 ```
 
+## Deterministic Build Gauntlet
+
+Before burning Hetzner hours, run the cheap repo gauntlet locally:
+
+```bash
+./scripts/preflight-fp-chromium-build.sh repo
+```
+
+The full Hetzner build now also runs a VM-side gauntlet automatically before
+the expensive compile:
+
+1. overlay contract verification
+2. toolchain presence checks (Rust, Node, esbuild, GN)
+3. `gn gen`
+4. `ninja -n chrome chromedriver`
+
+That split catches shell/tooling/graph regressions early while keeping the
+actual full compile on Hetzner.
+
 ## Known Issues & Solutions (CRITICAL — Read Before Building)
 
 These were discovered during builds and will save hours of debugging.
@@ -234,6 +253,18 @@ perl -0pi -e 's|deps = \[\n    ":embedder_support",|deps = [\n    ":embedder_sup
 ```
 
 ## Step-by-Step Procedure
+
+### Phase 0: Local Preflight (~30 sec)
+
+Run the deterministic repo gauntlet before creating or restarting a server:
+
+```bash
+./scripts/preflight-fp-chromium-build.sh repo
+```
+
+If this fails, stop and fix the repo first. The watchdog and `scripts/hetzner-build.sh`
+now enforce this automatically, but you should still run it manually when
+debugging a build issue.
 
 ### Phase 1: Create Server (~2 min)
 
