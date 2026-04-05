@@ -377,6 +377,9 @@ fi
 cat >> "${RELEASE_DIR}/args.gn" <<'GNARGS'
 use_sysroot = false
 use_cups = false
+# Workaround: Ubuntu 22.04's libva-dev (<2.19) lacks AV1 refresh_frame_flags
+# and causes compile errors under VAAPI. Disable VAAPI for this build.
+use_vaapi = false
 GNARGS
 
 # GN: prefer prebuilt binary over local bootstrap (more reliable on Ubuntu 22.04).
