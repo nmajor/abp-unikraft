@@ -61,7 +61,7 @@ The prompt is intentionally narrow now:
 The cron job is intentionally small:
 
 ```cron
-*/15 * * * * cd /home/coder/app/abp-unikraft && zsh -lc 'PATH=/var/lib/asdf/installs/nodejs/24.8.0/bin:/var/lib/asdf/shims:/usr/local/bin:/usr/bin:/bin WATCHDOG_STATE_DIR=$HOME/.cache/abp-watchdog WATCHDOG_RUN_CODEX=1 WATCHDOG_CODEX_BIN=/var/lib/asdf/installs/nodejs/24.8.0/bin/codex WATCHDOG_CODEX_SEARCH=1 WATCHDOG_CODEX_TIMEOUT_SECONDS=600 ./scripts/watchdog-hetzner.sh cycle >> $HOME/.cache/abp-watchdog/cron.log 2>&1'
+*/5 * * * * cd /home/coder/app/abp-unikraft && zsh -lc 'PATH=/var/lib/asdf/installs/nodejs/24.8.0/bin:/var/lib/asdf/shims:/usr/local/bin:/usr/bin:/bin WATCHDOG_STATE_DIR=$HOME/.cache/abp-watchdog WATCHDOG_RUN_CODEX=1 WATCHDOG_CODEX_BIN=/var/lib/asdf/installs/nodejs/24.8.0/bin/codex WATCHDOG_CODEX_SEARCH=1 WATCHDOG_CODEX_TIMEOUT_SECONDS=600 ./scripts/watchdog-hetzner.sh cycle >> $HOME/.cache/abp-watchdog/cron.log 2>&1'
 ```
 
 Each cron tick does one thing:
@@ -71,6 +71,7 @@ If another cycle is already running:
 - skip cleanly
 - log the skip
 - only warn if the lock survives for roughly an hour across multiple skipped cycles
+- with the 5-minute cadence, the default warning threshold is 12 skipped cycles
 
 This means a 20-40 minute repair loop is treated as normal, not as a failure.
 

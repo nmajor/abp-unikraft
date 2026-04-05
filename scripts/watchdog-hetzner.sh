@@ -33,7 +33,7 @@ WATCHDOG_FP_CHROMIUM_TAG="${WATCHDOG_FP_CHROMIUM_TAG:-142.0.7444.175}"
 WATCHDOG_ABP_BRANCH="${WATCHDOG_ABP_BRANCH:-dev}"
 WATCHDOG_FLOW_TIMEOUT_HOURS="${WATCHDOG_FLOW_TIMEOUT_HOURS:-24}"
 WATCHDOG_LOCK_WARN_MINUTES="${WATCHDOG_LOCK_WARN_MINUTES:-60}"
-WATCHDOG_LOCK_WARN_SKIPS="${WATCHDOG_LOCK_WARN_SKIPS:-4}"
+WATCHDOG_LOCK_WARN_SKIPS="${WATCHDOG_LOCK_WARN_SKIPS:-12}"
 WATCHDOG_SSH_TIMEOUT="${WATCHDOG_SSH_TIMEOUT:-10}"
 
 SSH_OPTS=(
@@ -731,7 +731,7 @@ install_cron() {
     local repo_root current_crontab tmp_crontab cron_line marker
     repo_root="${PROJECT_DIR}"
     marker="# ABP watchdog deployment"
-    cron_line="*/15 * * * * cd ${repo_root} && zsh -lc 'PATH=/var/lib/asdf/installs/nodejs/24.8.0/bin:/var/lib/asdf/shims:/usr/local/bin:/usr/bin:/bin WATCHDOG_STATE_DIR=${STATE_DIR} WATCHDOG_RUN_CODEX=1 WATCHDOG_CODEX_BIN=${WATCHDOG_CODEX_BIN} WATCHDOG_CODEX_SEARCH=1 WATCHDOG_CODEX_TIMEOUT_SECONDS=600 ./scripts/watchdog-hetzner.sh cycle >> ${CRON_LOG_FILE} 2>&1' ${marker}"
+    cron_line="*/5 * * * * cd ${repo_root} && zsh -lc 'PATH=/var/lib/asdf/installs/nodejs/24.8.0/bin:/var/lib/asdf/shims:/usr/local/bin:/usr/bin:/bin WATCHDOG_STATE_DIR=${STATE_DIR} WATCHDOG_RUN_CODEX=1 WATCHDOG_CODEX_BIN=${WATCHDOG_CODEX_BIN} WATCHDOG_CODEX_SEARCH=1 WATCHDOG_CODEX_TIMEOUT_SECONDS=600 ./scripts/watchdog-hetzner.sh cycle >> ${CRON_LOG_FILE} 2>&1' ${marker}"
     current_crontab="$(crontab -l 2>/dev/null || true)"
     tmp_crontab="$(mktemp)"
     printf '%s\n' "${current_crontab}" | grep -v 'ABP watchdog deployment' > "${tmp_crontab}" || true
