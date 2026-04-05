@@ -51,15 +51,15 @@ ensure_node() {
     log "Installing Node ${expected}"
   fi
 
-  local tarball="/tmp/node-${expected#v}-linux-x64.tar.xz"
+  local tarball="/tmp/node-v${expected#v}-linux-x64.tar.xz"
   local extract="/tmp/node-v${expected#v}-linux-x64"
   mkdir -p "${node_dir}"
   rm -rf "${extract}" 2>/dev/null || true
 
   if command -v wget >/dev/null 2>&1; then
-    wget -q "https://nodejs.org/dist/${expected}/node-${expected#v}-linux-x64.tar.xz" -O "${tarball}"
+    wget -q "https://nodejs.org/dist/${expected}/node-v${expected#v}-linux-x64.tar.xz" -O "${tarball}"
   else
-    curl -fsSL -o "${tarball}" "https://nodejs.org/dist/${expected}/node-${expected#v}-linux-x64.tar.xz"
+    curl -fsSL -o "${tarball}" "https://nodejs.org/dist/${expected}/node-v${expected#v}-linux-x64.tar.xz"
   fi
   tar -xJf "${tarball}" -C /tmp/
   cp "${extract}/bin/node" "${node_bin}"
