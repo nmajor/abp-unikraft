@@ -348,42 +348,18 @@ fi
 CHROME_BUILD_GN="${SRC_DIR}/chrome/BUILD.gn"
 if ! grep -q '"//chrome/browser/abp"' "${CHROME_BUILD_GN}" 2>/dev/null; then
     echo "  Injecting ABP dep into chrome/BUILD.gn..."
-    python3 - "${CHROME_BUILD_GN}" <<'PYINJECT'
-import sys, re
-path = sys.argv[1]
-text = open(path).read()
-
-marker = '"//chrome/browser/abp"'
-if marker in text:
-    print("  ABP dep already present.")
-    sys.exit(0)
-
-# Inject into the chrome executable's deps block.
-# Look for the executable("chrome") or similar top-level target's deps.
-injected = False
-for pattern in [
-    # The chrome executable target typically deps on //chrome/browser
-    r'(deps\s*=\s*\[\s*\n\s*"//chrome/browser",?\s*\n)',
-    r'(deps\s*=\s*\[\s*\n\s*"//chrome/browser:browser",?\s*\n)',
-    # Fallback: any deps block containing //chrome/app
-    r'(deps\s*=\s*\[\s*\n\s*"//chrome/app[^"]*",?\s*\n)',
-    # Last resort: first deps block in the file
-    r'(deps\s*=\s*\[\s*\n)',
-]:
-    m = re.search(pattern, text)
-    if m:
-        insert_pos = m.start() + len(m.group(0))
-        text = text[:insert_pos] + '    "//chrome/browser/abp",\n' + text[insert_pos:]
-        injected = True
-        break
-
-if not injected:
-    print("  WARNING: Could not find deps block in chrome/BUILD.gn to inject ABP dep.")
-    sys.exit(1)
-
-open(path, 'w').write(text)
-print("  OK — ABP dep injected into chrome/BUILD.gn")
-PYINJECT
+    # Add "//chrome/browser/abp" on the line after "//chrome/browser" in deps.
+    # First ensure the "//chrome/browser" line has a trailing comma, then
+    # append our dep on the next line using sed 'a\' (reliable newline).
+    sed -i '0,/"\/\/chrome\/browser"[[:space:]]*$/{s/"\/\/chrome\/browser"[[:space:]]*$/"\/\/chrome\/browser",/}' "${CHROME_BUILD_GN}"
+    sed -i '0,/"\/\/chrome\/browser",/{/"\/\/chrome\/browser",/a\        "//chrome/browser/abp",
+}' "${CHROME_BUILD_GN}"
+    if grep -q '"//chrome/browser/abp"' "${CHROME_BUILD_GN}"; then
+        echo "  OK — ABP dep injected into chrome/BUILD.gn"
+    else
+        echo "  ERROR: Failed to inject ABP dep into chrome/BUILD.gn"
+        exit 1
+    fi
 fi
 
 # 7b.2: Verify the overlaid ABP source does not reintroduce legacy stealth
