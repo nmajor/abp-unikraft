@@ -122,9 +122,7 @@ set -- "${ABP_BINARY}" \
     --disable-component-update \
     --disable-default-apps \
     --disable-extensions \
-    --disable-gpu \
-    --no-zygote \
-    --single-process
+    --disable-gpu
 
 if [ -n "${ABP_DISABLE_SPOOFING}" ]; then
     set -- "$@" --disable-spoofing="${ABP_DISABLE_SPOOFING}"
