@@ -123,7 +123,8 @@ set -- "${ABP_BINARY}" \
     --disable-default-apps \
     --disable-extensions \
     --disable-gpu \
-    --no-zygote
+    --no-zygote \
+    --single-process
 
 if [ -n "${ABP_DISABLE_SPOOFING}" ]; then
     set -- "$@" --disable-spoofing="${ABP_DISABLE_SPOOFING}"
