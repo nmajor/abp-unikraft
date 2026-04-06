@@ -370,7 +370,6 @@ symbol_level = 0
 is_official_build = true
 chrome_pgo_phase = 0
 target_cpu = "x64"
-enable_nacl = false
 blink_symbol_level = 0
 GNARGS
 fi
@@ -385,7 +384,6 @@ is_component_build = false
 symbol_level = 0
 is_official_build = true
 target_cpu = "x64"
-enable_nacl = false
 blink_symbol_level = 0
 GNARGS
 
