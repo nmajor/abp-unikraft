@@ -93,6 +93,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libexpat1 \
     libgbm1 \
     libglib2.0-0 \
+    libglib2.0-data \
     libnspr4 \
     libnss3 \
     libpango-1.0-0 \
@@ -125,6 +126,8 @@ RUN set -eux; \
       /rootfs/lib64 \
       /rootfs/tmp/abp-data \
       /rootfs/tmp/abp-sessions \
+      /rootfs/proc \
+      /rootfs/dev \
       /rootfs/var/cache; \
     cp -a /opt/abp /rootfs/opt/; \
     install -Dm755 /usr/local/bin/gost /rootfs/usr/local/bin/gost; \
@@ -139,6 +142,11 @@ RUN set -eux; \
     cp -a /etc/hosts /rootfs/etc/; \
     cp -a /etc/resolv.conf /rootfs/etc/; \
     cp -a /usr/share/fontconfig /rootfs/usr/share/; \
+    # GLib gsettings schemas — Chrome needs these to initialize
+    if [ -d /usr/share/glib-2.0/schemas ]; then \
+      mkdir -p /rootfs/usr/share/glib-2.0; \
+      cp -a /usr/share/glib-2.0/schemas /rootfs/usr/share/glib-2.0/; \
+    fi; \
     # Copy only Liberation font files (the only family we install), not the
     # entire truetype tree which may pull in fallback/default fonts.
     mkdir -p /rootfs/usr/share/fonts/truetype/liberation; \
