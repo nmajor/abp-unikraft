@@ -20,6 +20,16 @@ WATCHDOG_CLAUDE_BIN="${WATCHDOG_CLAUDE_BIN:-/var/lib/asdf/installs/nodejs/24.8.0
 WATCHDOG_CLAUDE_TIMEOUT_SECONDS="${WATCHDOG_CLAUDE_TIMEOUT_SECONDS:-600}"
 WATCHDOG_RUN_CLAUDE="${WATCHDOG_RUN_CLAUDE:-1}"
 
+# Guardrails
+WATCHDOG_MAX_REPAIRS="${WATCHDOG_MAX_REPAIRS:-5}"
+WATCHDOG_MAX_SAME_FAILURE="${WATCHDOG_MAX_SAME_FAILURE:-3}"
+
+# Post-build automation
+WATCHDOG_AUTO_DEPLOY="${WATCHDOG_AUTO_DEPLOY:-1}"
+WATCHDOG_AUTO_SMOKE_TEST="${WATCHDOG_AUTO_SMOKE_TEST:-1}"
+WATCHDOG_DEPLOY_TIMEOUT_SECONDS="${WATCHDOG_DEPLOY_TIMEOUT_SECONDS:-600}"
+WATCHDOG_KRAFT_TOKEN="${WATCHDOG_KRAFT_TOKEN:-}"
+
 WATCHDOG_SERVER_TYPE="${WATCHDOG_SERVER_TYPE:-cpx51}"
 WATCHDOG_SERVER_LOCATION="${WATCHDOG_SERVER_LOCATION:-ash}"
 WATCHDOG_SERVER_IMAGE="${WATCHDOG_SERVER_IMAGE:-ubuntu-22.04}"
@@ -113,6 +123,9 @@ WATCHDOG_REPAIR_COUNT=$(shell_escape "${WATCHDOG_REPAIR_COUNT:-0}")
 WATCHDOG_LAST_CYCLE_ID=$(shell_escape "${WATCHDOG_LAST_CYCLE_ID:-}")
 WATCHDOG_LOCK_SKIP_COUNT=$(shell_escape "${WATCHDOG_LOCK_SKIP_COUNT:-0}")
 WATCHDOG_LOCK_FIRST_SEEN_AT_EPOCH=$(shell_escape "${WATCHDOG_LOCK_FIRST_SEEN_AT_EPOCH:-}")
+WATCHDOG_PREV_FAILURE_SUMMARY=$(shell_escape "${WATCHDOG_PREV_FAILURE_SUMMARY:-}")
+WATCHDOG_SAME_FAILURE_COUNT=$(shell_escape "${WATCHDOG_SAME_FAILURE_COUNT:-0}")
+WATCHDOG_BUILD_PROGRESS=$(shell_escape "${WATCHDOG_BUILD_PROGRESS:-}")
 EOF
 }
 
@@ -135,6 +148,9 @@ state_clear() {
     WATCHDOG_LAST_CYCLE_ID=""
     WATCHDOG_LOCK_SKIP_COUNT="0"
     WATCHDOG_LOCK_FIRST_SEEN_AT_EPOCH=""
+    WATCHDOG_PREV_FAILURE_SUMMARY=""
+    WATCHDOG_SAME_FAILURE_COUNT="0"
+    WATCHDOG_BUILD_PROGRESS=""
     state_write
 }
 
@@ -483,42 +499,83 @@ remote_restart() {
     state_write
 }
 
+extract_remote_errors() {
+    # Extract actual error lines from the remote build log, not just tail spam
+    local errors
+    errors="$(ssh "${SSH_OPTS[@]}" "root@${WATCHDOG_SERVER_IP}" \
+        "grep -n -E 'FAILED:|fatal:|^ERROR|error:.*failed|No such file|not found|undefined reference' /root/abp-watchdog/build.log 2>/dev/null | tail -20" 2>/dev/null || true)"
+    printf '%s\n' "${errors}"
+}
+
+extract_build_step() {
+    # Extract the last build step marker (==> [N/9])
+    local step
+    step="$(ssh "${SSH_OPTS[@]}" "root@${WATCHDOG_SERVER_IP}" \
+        "grep -oP '==> \[.*/.*\].*' /root/abp-watchdog/build.log 2>/dev/null | tail -1" 2>/dev/null || true)"
+    printf '%s\n' "${step}"
+}
+
 render_prompt() {
-    local log_excerpt
+    local log_excerpt error_lines build_step
     log_excerpt="$(remote_tail 80 | sed 's/^/  /' || true)"
+    error_lines="$(extract_remote_errors | sed 's/^/  /' || true)"
+    build_step="$(extract_build_step || true)"
     cat > "${PROMPT_FILE}" <<EOF
 # ABP Watchdog Repair Prompt
 
-Goal:
-- Fix the repo-side cause of the current Hetzner build failure.
-- Commit and push the fix.
-- Do not create or destroy VMs.
-- Leave the repo clean.
+## Goal
+Fix the repo-side cause of the current Hetzner build failure, commit, and push.
 
-Current flow:
+## Current state
 - Flow: ${WATCHDOG_FLOW_ID:-unknown}
-- Phase: ${WATCHDOG_PHASE:-unknown}
-- Server: ${WATCHDOG_SERVER_NAME:-none}
-- Server ID: ${WATCHDOG_SERVER_ID:-none}
+- Commit on VM: ${WATCHDOG_REPO_SHA:-unknown}
 - Server IP: ${WATCHDOG_SERVER_IP:-none}
-- Commit currently associated with flow: ${WATCHDOG_REPO_SHA:-unknown}
-- Last remote phase: ${WATCHDOG_LAST_REMOTE_PHASE:-unknown}
-- Last failure summary: ${WATCHDOG_LAST_FAILURE_SUMMARY:-unknown}
+- Failed build step: ${build_step:-unknown}
+- Last failure: ${WATCHDOG_LAST_FAILURE_SUMMARY:-unknown}
+- Repair attempt: ${WATCHDOG_REPAIR_COUNT:-0} of ${WATCHDOG_MAX_REPAIRS}
+- Same failure repeated: ${WATCHDOG_SAME_FAILURE_COUNT:-0} times
 
-Constraints:
-- The watchdog owns infrastructure lifecycle.
-- Preserve the existing Hetzner VM.
-- If you change code, commit and push it.
-- Do not manually mutate watchdog state files.
+## Error lines from build log
+${error_lines:-  (no structured errors extracted)}
 
-Recent remote build log:
+## Recent build log tail (last 80 lines)
 ${log_excerpt}
 
-Expected output:
-- short root-cause statement
-- repo files changed
-- pushed commit SHA
-- note that the watchdog can now restart on the same VM
+## What you MUST do
+1. Read the error lines above to identify the root cause.
+2. Fix ONLY the files that caused the build to fail.
+3. git add, commit, and push your fix.
+4. The watchdog will automatically restart the build on the existing VM.
+
+## What you MUST NOT do
+- Do NOT create, destroy, or SSH into Hetzner VMs.
+- Do NOT edit watchdog state files under ~/.cache/abp-watchdog/.
+- Do NOT edit the Dockerfile or deploy workflow (the watchdog handles that).
+- Do NOT make unrelated improvements or refactors.
+- Do NOT edit files outside of: scripts/, patches/, CLAUDE.md
+
+## Files you may edit
+- scripts/build-on-fp-chromium.sh (build configuration, GN args, patches)
+- scripts/apply-stealth-extra-edits.sh (stealth patches)
+- scripts/apply-feature-edits.sh (feature patches)
+- scripts/verify-abp-overlay-contract.sh (overlay validation)
+- scripts/ensure-rust-toolchain.sh, scripts/ensure-node-esbuild.sh (toolchain)
+- scripts/preflight-fp-chromium-build.sh (preflight checks)
+- scripts/patch_flags_state.py (GN flags fix)
+- patches/stealth-extra/* (patch files)
+
+## Key context
+- Build is fingerprint-chromium ${WATCHDOG_FP_CHROMIUM_TAG} + ABP overlay
+- Build runs on Ubuntu 22.04 with use_sysroot=false
+- is_component_build=false, is_official_build=true, is_debug=false
+- NaCl is removed in Chromium 142 (enable_nacl is not a valid arg)
+- The build script is scripts/build-on-fp-chromium.sh
+- ABP protocol source is from github.com/theredsix/agent-browser-protocol (branch: dev)
+
+## Expected output format
+- Root cause: <one sentence>
+- Files changed: <list>
+- Commit SHA: <sha after push>
 EOF
     cat "${PROMPT_FILE}"
 }
@@ -566,27 +623,195 @@ reset_runtime_state_keep_summary() {
     state_write
 }
 
+update_dockerfile_version() {
+    local tag="$1"
+    if [ -z "${tag}" ]; then
+        audit_log "no release tag to update Dockerfile with"
+        return 1
+    fi
+    local dockerfile="${PROJECT_DIR}/Dockerfile"
+    if ! grep -q "ARG ABP_STEALTH_VERSION=" "${dockerfile}"; then
+        audit_log "Dockerfile missing ABP_STEALTH_VERSION arg"
+        return 1
+    fi
+    sed -i "s|^ARG ABP_STEALTH_VERSION=.*|ARG ABP_STEALTH_VERSION=${tag}|" "${dockerfile}"
+    git -C "${PROJECT_DIR}" add Dockerfile
+    git -C "${PROJECT_DIR}" commit -m "Update ABP_STEALTH_VERSION to ${tag}"
+    git -C "${PROJECT_DIR}" push origin "${WATCHDOG_REPO_REF}"
+    audit_log "updated Dockerfile to ${tag} and pushed"
+}
+
+trigger_deploy() {
+    audit_log "triggering deploy workflow"
+    gh workflow run deploy.yml --repo nmajor/abp-unikraft --ref "${WATCHDOG_REPO_REF}" 2>&1 || {
+        audit_log "failed to trigger deploy workflow"
+        return 1
+    }
+    # Wait for the run to appear then poll for completion
+    sleep 10
+    local run_id status elapsed
+    run_id="$(gh run list --repo nmajor/abp-unikraft --workflow=deploy.yml --limit 1 --json databaseId --jq '.[0].databaseId' 2>/dev/null || true)"
+    if [ -z "${run_id}" ]; then
+        audit_log "could not find deploy run"
+        return 1
+    fi
+    audit_log "deploy run ${run_id} started"
+    elapsed=0
+    while [ "${elapsed}" -lt "${WATCHDOG_DEPLOY_TIMEOUT_SECONDS}" ]; do
+        status="$(gh run view "${run_id}" --repo nmajor/abp-unikraft --json status,conclusion --jq '.status + ":" + (.conclusion // "")' 2>/dev/null || true)"
+        case "${status}" in
+            completed:success)
+                audit_log "deploy run ${run_id} succeeded"
+                return 0
+                ;;
+            completed:*)
+                audit_log "deploy run ${run_id} failed: ${status}"
+                return 1
+                ;;
+        esac
+        sleep 30
+        elapsed="$(( elapsed + 30 ))"
+    done
+    audit_log "deploy run ${run_id} timed out after ${WATCHDOG_DEPLOY_TIMEOUT_SECONDS}s"
+    return 1
+}
+
+run_smoke_test() {
+    # Resolve the KraftCloud FQDN for the instance
+    local kraft_token fqdn
+    kraft_token="${WATCHDOG_KRAFT_TOKEN:-${UKC_TOKEN:-}}"
+    if [ -z "${kraft_token}" ]; then
+        # Try loading from .zshrc
+        local token_line
+        token_line="$(grep '^export UKC_TOKEN=' "$HOME/.zshrc" 2>/dev/null | tail -n1 || true)"
+        kraft_token="${token_line#export UKC_TOKEN=}"
+        kraft_token="${kraft_token%\"}"
+        kraft_token="${kraft_token#\"}"
+    fi
+
+    # Get the FQDN from kraft
+    if [ -n "${kraft_token}" ] && command -v kraft >/dev/null 2>&1; then
+        fqdn="$(kraft cloud --token "${kraft_token}" --metro fra instance get abp-unikraft 2>/dev/null \
+            | grep 'fqdn:' | awk '{print $2}' || true)"
+    fi
+
+    if [ -z "${fqdn}" ]; then
+        # Fallback: try the known pattern
+        audit_log "could not resolve FQDN, skipping smoke test"
+        return 1
+    fi
+
+    local url="https://${fqdn}"
+    audit_log "running smoke test against ${url}"
+
+    if [ -x "${PROJECT_DIR}/scripts/test-deployment.sh" ]; then
+        if "${PROJECT_DIR}/scripts/test-deployment.sh" "${url}" >> "${LOG_FILE}" 2>&1; then
+            audit_log "smoke test passed"
+            return 0
+        else
+            audit_log "smoke test failed"
+            return 1
+        fi
+    fi
+
+    # Minimal fallback: just check health endpoint
+    local http_code
+    http_code="$(curl -sS --max-time 30 -o /dev/null -w '%{http_code}' "${url}/json/version" 2>/dev/null || true)"
+    if [ "${http_code}" = "200" ]; then
+        audit_log "health check passed (HTTP ${http_code})"
+        return 0
+    fi
+    audit_log "health check failed (HTTP ${http_code:-timeout})"
+    return 1
+}
+
 handle_completed_flow() {
-    WATCHDOG_PHASE="completed"
-    WATCHDOG_LAST_STATUS="build completed"
     WATCHDOG_LAST_REMOTE_PHASE="completed"
     WATCHDOG_RELEASE_TAG="${REMOTE_RELEASE_TAG:-}"
     state_write
-    audit_log "build completed"
+    audit_log "build completed with release ${WATCHDOG_RELEASE_TAG:-unknown}"
     write_cycle_snapshot
+
+    # Clean up the Hetzner build VM first (stop the cost clock)
     cleanup_server
+
+    # Post-build: update Dockerfile and deploy
+    if [ "${WATCHDOG_AUTO_DEPLOY}" = "1" ] && [ -n "${WATCHDOG_RELEASE_TAG:-}" ]; then
+        WATCHDOG_PHASE="deploying"
+        WATCHDOG_LAST_STATUS="updating Dockerfile and deploying"
+        state_write
+
+        if update_dockerfile_version "${WATCHDOG_RELEASE_TAG}"; then
+            if trigger_deploy; then
+                WATCHDOG_LAST_STATUS="deploy succeeded"
+                state_write
+                audit_log "deploy succeeded"
+
+                # Post-deploy: smoke test
+                if [ "${WATCHDOG_AUTO_SMOKE_TEST}" = "1" ]; then
+                    WATCHDOG_PHASE="smoke_testing"
+                    WATCHDOG_LAST_STATUS="running smoke test"
+                    state_write
+                    # Give KraftCloud a moment to start the instance
+                    sleep 15
+                    if run_smoke_test; then
+                        WATCHDOG_PHASE="fully_completed"
+                        WATCHDOG_LAST_STATUS="build + deploy + smoke test all passed"
+                    else
+                        WATCHDOG_PHASE="completed_deploy_untested"
+                        WATCHDOG_LAST_STATUS="deploy succeeded but smoke test failed"
+                    fi
+                else
+                    WATCHDOG_PHASE="completed_deployed"
+                    WATCHDOG_LAST_STATUS="build and deploy succeeded (smoke test skipped)"
+                fi
+            else
+                WATCHDOG_PHASE="completed_deploy_failed"
+                WATCHDOG_LAST_STATUS="build succeeded but deploy failed"
+            fi
+        else
+            WATCHDOG_PHASE="completed"
+            WATCHDOG_LAST_STATUS="build succeeded but Dockerfile update failed"
+        fi
+    else
+        WATCHDOG_PHASE="completed"
+        WATCHDOG_LAST_STATUS="build completed (auto-deploy disabled or no release tag)"
+    fi
+
+    state_write
+    audit_log "${WATCHDOG_LAST_STATUS}"
     uninstall_cron >/dev/null 2>&1 || true
     reset_runtime_state_keep_summary
 }
 
 handle_repair_pending() {
+    local current_failure="${REMOTE_FAILURE_SUMMARY:-build failed}"
     WATCHDOG_PHASE="repair_pending"
     WATCHDOG_LAST_REMOTE_PHASE="${REMOTE_PHASE:-failed}"
-    WATCHDOG_LAST_FAILURE_SUMMARY="${REMOTE_FAILURE_SUMMARY:-build failed}"
+    WATCHDOG_LAST_FAILURE_SUMMARY="${current_failure}"
     WATCHDOG_LAST_STATUS="awaiting repo fix/push before restart on existing VM"
     WATCHDOG_REPAIR_COUNT="$(( ${WATCHDOG_REPAIR_COUNT:-0} + 1 ))"
+
+    # Guardrail 1: cap total repair attempts
+    if [ "${WATCHDOG_REPAIR_COUNT}" -gt "${WATCHDOG_MAX_REPAIRS}" ]; then
+        mark_failed_and_cleanup "exceeded max repair attempts (${WATCHDOG_MAX_REPAIRS})"
+        return 1
+    fi
+
+    # Guardrail 2: detect stuck repairs (same error repeating)
+    if [ "${current_failure}" = "${WATCHDOG_PREV_FAILURE_SUMMARY:-}" ]; then
+        WATCHDOG_SAME_FAILURE_COUNT="$(( ${WATCHDOG_SAME_FAILURE_COUNT:-0} + 1 ))"
+    else
+        WATCHDOG_SAME_FAILURE_COUNT="1"
+        WATCHDOG_PREV_FAILURE_SUMMARY="${current_failure}"
+    fi
+    if [ "${WATCHDOG_SAME_FAILURE_COUNT}" -ge "${WATCHDOG_MAX_SAME_FAILURE}" ]; then
+        mark_failed_and_cleanup "same failure repeated ${WATCHDOG_SAME_FAILURE_COUNT} times: ${current_failure}"
+        return 1
+    fi
+
     state_write
-    audit_log "repair pending after remote failure"
+    audit_log "repair pending after remote failure (attempt ${WATCHDOG_REPAIR_COUNT}/${WATCHDOG_MAX_REPAIRS})"
     save_remote_log || true
 
     if git_preflight && [ "${WATCHDOG_REPO_SHA}" != "${REMOTE_COMMIT_SHA:-}" ]; then
@@ -631,8 +856,13 @@ poll_remote_flow() {
     case "${REMOTE_PHASE:-idle}" in
         building)
             WATCHDOG_PHASE="building"
-            WATCHDOG_LAST_STATUS="remote build running"
             WATCHDOG_REPO_SHA="${REMOTE_COMMIT_SHA:-${WATCHDOG_REPO_SHA}}"
+            # Extract build progress for status display
+            local tail_out progress_info
+            tail_out="$(remote_tail 10 2>/dev/null || true)"
+            progress_info="$(extract_build_progress_from_tail "${tail_out}")"
+            WATCHDOG_BUILD_PROGRESS="${progress_info:-compiling}"
+            WATCHDOG_LAST_STATUS="remote build running ${WATCHDOG_BUILD_PROGRESS}"
             state_write
             write_cycle_snapshot
             ;;
@@ -690,8 +920,28 @@ start_cycle() {
     poll_remote_flow
 }
 
+extract_build_progress_from_tail() {
+    # Parse ninja [X/Y] progress from recent log output
+    local tail_output="$1"
+    local progress
+    progress="$(printf '%s' "${tail_output}" | grep -oP '\[\d+/\d+\]' | tail -1 || true)"
+    if [ -n "${progress}" ]; then
+        printf '%s' "${progress}"
+        return
+    fi
+    # Fallback: last ==> step marker
+    progress="$(printf '%s' "${tail_output}" | grep -oP '==> \[.*\].*' | tail -1 || true)"
+    printf '%s' "${progress}"
+}
+
 status() {
     state_load
+    local progress_line=""
+    if [ -n "${WATCHDOG_SERVER_IP:-}" ] && [ "${WATCHDOG_PHASE:-}" = "building" ]; then
+        local tail_out
+        tail_out="$(remote_tail 20 2>/dev/null || true)"
+        progress_line="$(extract_build_progress_from_tail "${tail_out}")"
+    fi
     cat <<EOF
 Flow: ${WATCHDOG_FLOW_ID:-none}
 Phase: ${WATCHDOG_PHASE:-idle}
@@ -701,8 +951,10 @@ Server IP: ${WATCHDOG_SERVER_IP:-none}
 Repo SHA: ${WATCHDOG_REPO_SHA:-none}
 Remote phase: ${WATCHDOG_LAST_REMOTE_PHASE:-none}
 Last failure: ${WATCHDOG_LAST_FAILURE_SUMMARY:-none}
-Repair count: ${WATCHDOG_REPAIR_COUNT:-0}
+Repair count: ${WATCHDOG_REPAIR_COUNT:-0}/${WATCHDOG_MAX_REPAIRS}
+Same failure streak: ${WATCHDOG_SAME_FAILURE_COUNT:-0}/${WATCHDOG_MAX_SAME_FAILURE}
 Release: ${WATCHDOG_RELEASE_TAG:-none}
+Build progress: ${progress_line:-n/a}
 Last check: ${WATCHDOG_LAST_CHECK_AT:-none}
 EOF
     if [ -n "${WATCHDOG_SERVER_IP:-}" ]; then
