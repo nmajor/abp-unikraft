@@ -330,33 +330,35 @@ else
 fi
 
 # 7b.1: Wire ABP into Chrome's build graph.
-# The ABP source_set("abp") must be referenced from chrome/browser/BUILD.gn
-# so it gets compiled into the chrome binary. Without this, the ABP code is
-# copied but never compiled and --abp-port is silently ignored.
-BROWSER_BUILD_GN="${SRC_DIR}/chrome/browser/BUILD.gn"
-if ! grep -q '"//chrome/browser/abp"' "${BROWSER_BUILD_GN}" 2>/dev/null; then
-    echo "  Injecting ABP dep into chrome/browser/BUILD.gn..."
-    # Find the first deps = [ in the main chrome_browser source_set and add our dep.
-    # We target the "browser" source_set which is the main browser target.
-    python3 - "${BROWSER_BUILD_GN}" <<'PYINJECT'
+# The ABP source_set("abp") must be referenced from chrome/BUILD.gn (the
+# chrome executable target) so it gets compiled into the chrome binary.
+# IMPORTANT: We inject into chrome/BUILD.gn, NOT chrome/browser/BUILD.gn.
+# ABP depends on //chrome/browser/ui which depends on browser_process;
+# injecting into browser_process creates a dependency cycle.
+CHROME_BUILD_GN="${SRC_DIR}/chrome/BUILD.gn"
+if ! grep -q '"//chrome/browser/abp"' "${CHROME_BUILD_GN}" 2>/dev/null; then
+    echo "  Injecting ABP dep into chrome/BUILD.gn..."
+    python3 - "${CHROME_BUILD_GN}" <<'PYINJECT'
 import sys, re
 path = sys.argv[1]
 text = open(path).read()
 
-# Strategy: find 'source_set("browser")' and inject into its deps block.
-# If that's not found, inject after the first 'deps = [' we find.
 marker = '"//chrome/browser/abp"'
 if marker in text:
     print("  ABP dep already present.")
     sys.exit(0)
 
-# Try to add to the top-level chrome_browser deps
-# Look for a deps block that contains well-known browser deps
+# Inject into the chrome executable's deps block.
+# Look for the executable("chrome") or similar top-level target's deps.
 injected = False
 for pattern in [
-    r'(deps\s*=\s*\[\s*\n\s*"//chrome/browser/accessibility")',
-    r'(deps\s*=\s*\[\s*\n\s*"//chrome/app:generated_resources")',
-    r'(deps\s*\+?=\s*\[\s*\n)',
+    # The chrome executable target typically deps on //chrome/browser
+    r'(deps\s*=\s*\[\s*\n\s*"//chrome/browser")',
+    r'(deps\s*=\s*\[\s*\n\s*"//chrome/browser:browser")',
+    # Fallback: any deps block containing //chrome/app
+    r'(deps\s*=\s*\[\s*\n\s*"//chrome/app)',
+    # Last resort: first deps block in the file
+    r'(deps\s*=\s*\[\s*\n)',
 ]:
     m = re.search(pattern, text)
     if m:
@@ -366,12 +368,11 @@ for pattern in [
         break
 
 if not injected:
-    print("  WARNING: Could not find deps block to inject ABP dep.")
-    print("  You may need to manually add '\"//chrome/browser/abp\"' to chrome/browser/BUILD.gn")
+    print("  WARNING: Could not find deps block in chrome/BUILD.gn to inject ABP dep.")
     sys.exit(1)
 
 open(path, 'w').write(text)
-print("  OK — ABP dep injected into chrome/browser/BUILD.gn")
+print("  OK — ABP dep injected into chrome/BUILD.gn")
 PYINJECT
 fi
 
