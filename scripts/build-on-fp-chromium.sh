@@ -363,10 +363,10 @@ if marker in text:
 injected = False
 for pattern in [
     # The chrome executable target typically deps on //chrome/browser
-    r'(deps\s*=\s*\[\s*\n\s*"//chrome/browser")',
-    r'(deps\s*=\s*\[\s*\n\s*"//chrome/browser:browser")',
+    r'(deps\s*=\s*\[\s*\n\s*"//chrome/browser",?\s*\n)',
+    r'(deps\s*=\s*\[\s*\n\s*"//chrome/browser:browser",?\s*\n)',
     # Fallback: any deps block containing //chrome/app
-    r'(deps\s*=\s*\[\s*\n\s*"//chrome/app)',
+    r'(deps\s*=\s*\[\s*\n\s*"//chrome/app[^"]*",?\s*\n)',
     # Last resort: first deps block in the file
     r'(deps\s*=\s*\[\s*\n)',
 ]:
