@@ -16,11 +16,9 @@ LOCK_META_FILE="${LOCK_DIR}/meta.env"
 
 HETZNER_API="${HETZNER_API_TOKEN:-}"
 GH_TOKEN="${GH_TOKEN:-}"
-WATCHDOG_CODEX_BIN="${WATCHDOG_CODEX_BIN:-/var/lib/asdf/installs/nodejs/24.8.0/bin/codex}"
-WATCHDOG_CODEX_MODEL="${WATCHDOG_CODEX_MODEL:-gpt-5}"
-WATCHDOG_CODEX_TIMEOUT_SECONDS="${WATCHDOG_CODEX_TIMEOUT_SECONDS:-600}"
-WATCHDOG_CODEX_SEARCH="${WATCHDOG_CODEX_SEARCH:-1}"
-WATCHDOG_RUN_CODEX="${WATCHDOG_RUN_CODEX:-1}"
+WATCHDOG_CLAUDE_BIN="${WATCHDOG_CLAUDE_BIN:-/var/lib/asdf/installs/nodejs/24.8.0/bin/claude}"
+WATCHDOG_CLAUDE_TIMEOUT_SECONDS="${WATCHDOG_CLAUDE_TIMEOUT_SECONDS:-600}"
+WATCHDOG_RUN_CLAUDE="${WATCHDOG_RUN_CLAUDE:-1}"
 
 WATCHDOG_SERVER_TYPE="${WATCHDOG_SERVER_TYPE:-cpx51}"
 WATCHDOG_SERVER_LOCATION="${WATCHDOG_SERVER_LOCATION:-ash}"
@@ -267,13 +265,13 @@ require_credentials() {
     command -v python3 >/dev/null 2>&1 || { log "ERROR: python3 is required."; exit 1; }
     command -v grep >/dev/null 2>&1 || { log "ERROR: grep is required."; exit 1; }
 
-    if [ "${WATCHDOG_RUN_CODEX}" = "1" ]; then
-        if [ -x "${WATCHDOG_CODEX_BIN}" ]; then
+    if [ "${WATCHDOG_RUN_CLAUDE}" = "1" ]; then
+        if [ -x "${WATCHDOG_CLAUDE_BIN}" ]; then
             :
-        elif command -v codex >/dev/null 2>&1; then
-            WATCHDOG_CODEX_BIN="$(command -v codex)"
+        elif command -v claude >/dev/null 2>&1; then
+            WATCHDOG_CLAUDE_BIN="$(command -v claude)"
         else
-            log "ERROR: codex CLI is required when WATCHDOG_RUN_CODEX=1."
+            log "ERROR: claude CLI is required when WATCHDOG_RUN_CLAUDE=1."
             exit 1
         fi
     fi
@@ -525,29 +523,27 @@ EOF
     cat "${PROMPT_FILE}"
 }
 
-run_codex_repair_cycle() {
-    if [ "${WATCHDOG_RUN_CODEX}" != "1" ]; then
+run_claude_repair_cycle() {
+    if [ "${WATCHDOG_RUN_CLAUDE}" != "1" ]; then
         return 0
     fi
     render_prompt >/dev/null
-    local cmd=("${WATCHDOG_CODEX_BIN}")
-    if [ "${WATCHDOG_CODEX_SEARCH}" = "1" ]; then
-        cmd+=(--search)
-    fi
-    cmd+=(
-        exec
-        --dangerously-bypass-approvals-and-sandbox
-        -C "${PROJECT_DIR}"
-        -m "${WATCHDOG_CODEX_MODEL}"
-        -
-    )
-    audit_log "starting codex repair cycle"
+    local prompt_text
+    prompt_text="$(cat "${PROMPT_FILE}")"
+    audit_log "starting claude repair cycle"
     if command -v timeout >/dev/null 2>&1; then
-        timeout "${WATCHDOG_CODEX_TIMEOUT_SECONDS}" "${cmd[@]}" < "${PROMPT_FILE}" >> "${LOG_FILE}" 2>&1 || true
+        timeout "${WATCHDOG_CLAUDE_TIMEOUT_SECONDS}" \
+            "${WATCHDOG_CLAUDE_BIN}" -p "${prompt_text}" \
+            --dangerously-skip-permissions \
+            --output-format text \
+            >> "${LOG_FILE}" 2>&1 || true
     else
-        "${cmd[@]}" < "${PROMPT_FILE}" >> "${LOG_FILE}" 2>&1 || true
+        "${WATCHDOG_CLAUDE_BIN}" -p "${prompt_text}" \
+            --dangerously-skip-permissions \
+            --output-format text \
+            >> "${LOG_FILE}" 2>&1 || true
     fi
-    audit_log "finished codex repair cycle"
+    audit_log "finished claude repair cycle"
 }
 
 mark_failed_and_cleanup() {
@@ -600,7 +596,7 @@ handle_repair_pending() {
     fi
 
     write_cycle_snapshot
-    run_codex_repair_cycle
+    run_claude_repair_cycle
 }
 
 start_new_flow() {
@@ -738,7 +734,7 @@ install_cron() {
     local repo_root current_crontab tmp_crontab cron_line marker
     repo_root="${PROJECT_DIR}"
     marker="# ABP watchdog deployment"
-    cron_line="*/5 * * * * cd ${repo_root} && zsh -lc 'PATH=/var/lib/asdf/installs/nodejs/24.8.0/bin:/var/lib/asdf/shims:/usr/local/bin:/usr/bin:/bin WATCHDOG_STATE_DIR=${STATE_DIR} WATCHDOG_RUN_CODEX=1 WATCHDOG_CODEX_BIN=${WATCHDOG_CODEX_BIN} WATCHDOG_CODEX_SEARCH=1 WATCHDOG_CODEX_TIMEOUT_SECONDS=600 ./scripts/watchdog-hetzner.sh cycle >> ${CRON_LOG_FILE} 2>&1' ${marker}"
+    cron_line="*/5 * * * * cd ${repo_root} && zsh -lc 'PATH=/var/lib/asdf/installs/nodejs/24.8.0/bin:/var/lib/asdf/shims:/usr/local/bin:/usr/bin:/bin WATCHDOG_STATE_DIR=${STATE_DIR} WATCHDOG_RUN_CLAUDE=1 WATCHDOG_CLAUDE_BIN=${WATCHDOG_CLAUDE_BIN} WATCHDOG_CLAUDE_TIMEOUT_SECONDS=600 ./scripts/watchdog-hetzner.sh cycle >> ${CRON_LOG_FILE} 2>&1' ${marker}"
     current_crontab="$(crontab -l 2>/dev/null || true)"
     tmp_crontab="$(mktemp)"
     printf '%s\n' "${current_crontab}" | grep -v 'ABP watchdog deployment' > "${tmp_crontab}" || true
