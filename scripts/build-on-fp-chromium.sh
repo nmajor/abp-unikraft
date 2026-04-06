@@ -375,6 +375,20 @@ blink_symbol_level = 0
 GNARGS
 fi
 
+# Ensure release build flags are always set, regardless of whether we used
+# fp-chromium's flags.gn or our fallback. Without these, Chromium defaults to
+# a debug component build with full symbols (~1.5 GB), far too large for
+# KraftCloud's 4 GiB memory limit.
+cat >> "${RELEASE_DIR}/args.gn" <<'GNARGS'
+is_debug = false
+is_component_build = false
+symbol_level = 0
+is_official_build = true
+target_cpu = "x64"
+enable_nacl = false
+blink_symbol_level = 0
+GNARGS
+
 # We are building on Ubuntu directly, not against Chromium's Debian sysroot.
 # Keep GN aligned with the documented Hetzner workflow so GN/ninja do not look
 # for sysroot-only helpers like cups-config under build/linux/*-sysroot.
