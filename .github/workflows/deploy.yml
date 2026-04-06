@@ -40,7 +40,7 @@ jobs:
             --runtime index.unikraft.io/official/base-compat:latest \
             --scale-to-zero idle \
             --scale-to-zero-stateful \
-            --scale-to-zero-cooldown 5s \
+            --scale-to-zero-cooldown 60s \
             --compress \
             --restart on-failure \
             -p 443:15678/http+tls -p 1080:1080/tls \
