@@ -36,6 +36,25 @@ RUN wget -q "https://github.com/nmajor/abp-unikraft/releases/download/${ABP_STEA
     && rm -f /opt/abp/abp-chrome/libcomponents_feed_feature_list.so \
     && rm -f /opt/abp/abp-chrome/libthird_party_icu_icui18n_hidden_visibility.so \
     && rm -f /opt/abp/abp-chrome/libicuuc_hidden_visibility.so \
+    # Headless ABP does not use these subsystems — safe to remove in a
+    # component build without breaking the browser startup path.
+    # Tier 1: Hardware/device subsystems (no physical devices in unikernel)
+    && rm -f /opt/abp/abp-chrome/libcomponents_mirroring_service_mirroring_service.so \
+    && rm -f /opt/abp/abp-chrome/libdevice_fido.so \
+    && rm -f /opt/abp/abp-chrome/libdevice_gamepad.so \
+    && rm -f /opt/abp/abp-chrome/libgamepad_mojom.so \
+    && rm -f /opt/abp/abp-chrome/libgamepad_mojom_blink.so \
+    && rm -f /opt/abp/abp-chrome/libvr_public_cpp.so \
+    && rm -f /opt/abp/abp-chrome/libdevice_vr_isolated_xr_service_mojo_bindings.so \
+    # Tier 2: ML/AI services not used by ABP
+    && rm -f /opt/abp/abp-chrome/libservices_on_device_model_ml_ml_no_internal.so \
+    && rm -f /opt/abp/abp-chrome/libservices_webnn_webnn_service.so \
+    && rm -f /opt/abp/abp-chrome/libcomponents_language_detection_core.so \
+    # Tier 3: GPU/WebGPU (headless swiftshader doesn't need dawn)
+    && rm -f /opt/abp/abp-chrome/libdawn_native.so \
+    # Tier 4: Services not relevant to headless browsing
+    && rm -f /opt/abp/abp-chrome/libcomponents_drive.so \
+    && rm -f /opt/abp/abp-chrome/libpolicy_component.so \
     && find /opt/abp/abp-chrome -name '*.TOC' -delete 2>/dev/null || true \
     # Remove optional/unnecessary components
     && rm -rf /opt/abp/abp-chrome/MEIPreload \
