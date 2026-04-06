@@ -122,7 +122,8 @@ set -- "${ABP_BINARY}" \
     --disable-component-update \
     --disable-default-apps \
     --disable-extensions \
-    --disable-gpu
+    --disable-gpu \
+    --no-zygote
 
 if [ -n "${ABP_DISABLE_SPOOFING}" ]; then
     set -- "$@" --disable-spoofing="${ABP_DISABLE_SPOOFING}"
@@ -134,7 +135,9 @@ if [ -n "${PROXY_ARGS}" ]; then
     set -- "$@" ${PROXY_ARGS}
 fi
 
-# Suppress dbus connection attempts (no system bus in unikernel)
-export DBUS_SESSION_BUS_ADDRESS=/dev/null
+# Suppress dbus connection attempts (no system bus in unikernel).
+# Use "disabled:" pseudo-address so libdbus returns immediately.
+export DBUS_SESSION_BUS_ADDRESS=disabled:
+export DBUS_SYSTEM_BUS_ADDRESS=disabled:
 
 exec "$@"
