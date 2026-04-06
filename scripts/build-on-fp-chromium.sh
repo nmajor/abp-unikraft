@@ -378,6 +378,11 @@ echo "  Applying feature edits..."
 chmod +x "${PATCH_REPO}/scripts/apply-feature-edits.sh"
 bash "${PATCH_REPO}/scripts/apply-feature-edits.sh" "${SRC_DIR}"
 
+# 7e: Apply ABP Chromium 142 compatibility edits.
+echo "  Applying ABP compat edits..."
+chmod +x "${PATCH_REPO}/scripts/apply-abp-compat-edits.sh"
+bash "${PATCH_REPO}/scripts/apply-abp-compat-edits.sh" "${SRC_DIR}"
+
 # Re-run contract verification after our edits.
 echo "  Re-verifying ABP overlay contract..."
 bash "${PATCH_REPO}/scripts/verify-abp-overlay-contract.sh" "${SRC_DIR}"
