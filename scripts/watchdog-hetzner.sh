@@ -19,6 +19,7 @@ GH_TOKEN="${GH_TOKEN:-}"
 WATCHDOG_CLAUDE_BIN="${WATCHDOG_CLAUDE_BIN:-/var/lib/asdf/installs/nodejs/24.8.0/bin/claude}"
 WATCHDOG_CLAUDE_TIMEOUT_SECONDS="${WATCHDOG_CLAUDE_TIMEOUT_SECONDS:-600}"
 WATCHDOG_RUN_CLAUDE="${WATCHDOG_RUN_CLAUDE:-1}"
+WATCHDOG_CLAUDE_REPAIR_MODEL="${WATCHDOG_CLAUDE_REPAIR_MODEL:-sonnet}"
 
 # Guardrails
 WATCHDOG_MAX_REPAIRS="${WATCHDOG_MAX_REPAIRS:-5}"
@@ -587,17 +588,19 @@ run_claude_repair_cycle() {
     render_prompt >/dev/null
     local prompt_text
     prompt_text="$(cat "${PROMPT_FILE}")"
-    audit_log "starting claude repair cycle"
+    audit_log "starting claude repair cycle (model: ${WATCHDOG_CLAUDE_REPAIR_MODEL})"
     if command -v timeout >/dev/null 2>&1; then
         timeout "${WATCHDOG_CLAUDE_TIMEOUT_SECONDS}" \
             "${WATCHDOG_CLAUDE_BIN}" -p "${prompt_text}" \
             --dangerously-skip-permissions \
             --output-format text \
+            --model "${WATCHDOG_CLAUDE_REPAIR_MODEL}" \
             >> "${LOG_FILE}" 2>&1 || true
     else
         "${WATCHDOG_CLAUDE_BIN}" -p "${prompt_text}" \
             --dangerously-skip-permissions \
             --output-format text \
+            --model "${WATCHDOG_CLAUDE_REPAIR_MODEL}" \
             >> "${LOG_FILE}" 2>&1 || true
     fi
     audit_log "finished claude repair cycle"
