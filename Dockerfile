@@ -158,13 +158,23 @@ RUN set -eux; \
     if [ -d /var/cache/fontconfig ]; then cp -a /var/cache/fontconfig /rootfs/var/cache/; fi; \
     printf 'root:x:0:0:root:/root:/bin/sh\n' > /rootfs/etc/passwd; \
     printf 'root:x:0:\n' > /rootfs/etc/group; \
+    echo "--- ldd output for abp binary ---"; \
+    ldd /opt/abp/abp-chrome/abp 2>&1 || true; \
+    echo "--- ldd output for socat ---"; \
+    ldd /usr/bin/socat 2>&1 || true; \
+    echo "--- extracting deps ---"; \
     deps="$(ldd /opt/abp/abp-chrome/abp /usr/bin/socat 2>/dev/null \
-      | sed -n -e 's/.*=> \\(\\/[^ ]*\\).*/\\1/p' -e 's#^\\(/[^ ]*\\) .*#\\1#p' \
+      | sed -n -e 's/.*=> \(\/[^ ]*\).*/\1/p' -e 's#^\s*\(/[^ ]*\) .*#\1#p' \
       | grep -v '^/opt/abp/' \
       | sort -u)"; \
+    echo "Resolved deps:"; echo "${deps}"; \
     for lib in ${deps}; do \
       install -Dm755 "$(readlink -f "$lib")" "/rootfs${lib}"; \
-    done
+    done; \
+    # Always ensure the dynamic linker is present — ldd parsing can miss it
+    if [ -f /lib64/ld-linux-x86-64.so.2 ]; then \
+      install -Dm755 "$(readlink -f /lib64/ld-linux-x86-64.so.2)" /rootfs/lib64/ld-linux-x86-64.so.2; \
+    fi
 
 # --- Rootfs size audit (visible in build logs) ---
 # This runs at build time and prints the unpacked rootfs budget so we can
