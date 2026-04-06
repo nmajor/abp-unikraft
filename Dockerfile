@@ -88,7 +88,7 @@ RUN set -eux; \
       /rootfs/opt \
       /rootfs/usr/local/bin \
       /rootfs/usr/bin \
-      /rootfs/usr/share/fonts/truetype \
+      /rootfs/usr/share/fonts \
       /rootfs/bin \
       /rootfs/etc \
       /rootfs/lib64 \
@@ -108,8 +108,34 @@ RUN set -eux; \
     cp -a /etc/hosts /rootfs/etc/; \
     cp -a /etc/resolv.conf /rootfs/etc/; \
     cp -a /usr/share/fontconfig /rootfs/usr/share/; \
-    cp -a /usr/share/fonts/truetype /rootfs/usr/share/fonts/; \
-    cp -a /usr/share/zoneinfo /rootfs/usr/share/; \
+    # Copy only Liberation font files (the only family we install), not the
+    # entire truetype tree which may pull in fallback/default fonts.
+    mkdir -p /rootfs/usr/share/fonts/truetype/liberation; \
+    cp -a /usr/share/fonts/truetype/liberation/* /rootfs/usr/share/fonts/truetype/liberation/ 2>/dev/null || true; \
+    # Keep only a curated set of timezones instead of the full zoneinfo tree
+    # (~4 MB savings). The default is America/New_York; add zones as needed.
+    mkdir -p /rootfs/usr/share/zoneinfo/America \
+             /rootfs/usr/share/zoneinfo/Europe \
+             /rootfs/usr/share/zoneinfo/Asia \
+             /rootfs/usr/share/zoneinfo/Pacific \
+             /rootfs/usr/share/zoneinfo/Etc; \
+    for tz in \
+      UTC \
+      America/New_York America/Chicago America/Denver America/Los_Angeles \
+      America/Sao_Paulo America/Toronto America/Mexico_City \
+      Europe/London Europe/Paris Europe/Berlin Europe/Moscow \
+      Asia/Tokyo Asia/Shanghai Asia/Kolkata Asia/Dubai Asia/Singapore \
+      Pacific/Auckland Pacific/Honolulu \
+      Etc/UTC Etc/GMT; do \
+      src="/usr/share/zoneinfo/${tz}"; \
+      if [ -f "$src" ]; then \
+        install -Dm644 "$src" "/rootfs/usr/share/zoneinfo/${tz}"; \
+      fi; \
+    done; \
+    # Copy the zone.tab and leap-seconds files that some libs expect
+    for f in zone.tab zone1970.tab leap-seconds.list tzdata.zi; do \
+      [ -f "/usr/share/zoneinfo/$f" ] && cp "/usr/share/zoneinfo/$f" /rootfs/usr/share/zoneinfo/ 2>/dev/null || true; \
+    done; \
     if [ -d /var/cache/fontconfig ]; then cp -a /var/cache/fontconfig /rootfs/var/cache/; fi; \
     printf 'root:x:0:0:root:/root:/bin/sh\n' > /rootfs/etc/passwd; \
     printf 'root:x:0:\n' > /rootfs/etc/group; \
@@ -120,6 +146,24 @@ RUN set -eux; \
     for lib in ${deps}; do \
       install -Dm755 "$(readlink -f "$lib")" "/rootfs${lib}"; \
     done
+
+# --- Rootfs size audit (visible in build logs) ---
+# This runs at build time and prints the unpacked rootfs budget so we can
+# track size regressions without waiting for a KraftCloud boot failure.
+RUN set -eux; \
+    echo "=== ROOTFS SIZE AUDIT ==="; \
+    echo "--- Total rootfs size ---"; \
+    du -sh /rootfs; \
+    echo "--- Top-level breakdown ---"; \
+    du -sh /rootfs/*/ 2>/dev/null | sort -rh; \
+    echo "--- Top 50 largest files in rootfs ---"; \
+    find /rootfs -type f -exec du -k {} + | sort -rn | head -50; \
+    echo "--- Top 20 largest files in abp-chrome ---"; \
+    find /rootfs/opt/abp/abp-chrome -type f -exec du -k {} + 2>/dev/null | sort -rn | head -20; \
+    echo "--- Shared lib count and size ---"; \
+    find /rootfs -name '*.so*' -type f | wc -l; \
+    du -shc /rootfs/lib/ /rootfs/lib64/ /rootfs/usr/lib/ 2>/dev/null || true; \
+    echo "=== END ROOTFS SIZE AUDIT ==="
 
 FROM scratch
 
