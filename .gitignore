@@ -3,3 +3,4 @@ initrd
 *.tar.gz
 
 .omc/
+__pycache__/
