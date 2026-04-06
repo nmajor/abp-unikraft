@@ -335,6 +335,16 @@ fi
 # IMPORTANT: We inject into chrome/BUILD.gn, NOT chrome/browser/BUILD.gn.
 # ABP depends on //chrome/browser/ui which depends on browser_process;
 # injecting into browser_process creates a dependency cycle.
+#
+# First, remove any stale ABP dep from chrome/browser/BUILD.gn left by
+# earlier build attempts (commit 56e7393). Without this cleanup the old
+# injection persists on the VM and re-creates the cycle.
+BROWSER_BUILD_GN="${SRC_DIR}/chrome/browser/BUILD.gn"
+if grep -q '"//chrome/browser/abp"' "${BROWSER_BUILD_GN}" 2>/dev/null; then
+    echo "  Removing stale ABP dep from chrome/browser/BUILD.gn..."
+    sed -i '/"\/\/chrome\/browser\/abp"/d' "${BROWSER_BUILD_GN}"
+fi
+
 CHROME_BUILD_GN="${SRC_DIR}/chrome/BUILD.gn"
 if ! grep -q '"//chrome/browser/abp"' "${CHROME_BUILD_GN}" 2>/dev/null; then
     echo "  Injecting ABP dep into chrome/BUILD.gn..."
