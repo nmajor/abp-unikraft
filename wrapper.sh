@@ -117,14 +117,12 @@ set -- "${ABP_BINARY}" \
     --disable-sync \
     --no-first-run \
     --lang=en-US \
-    --disable-features=dbus \
     --disable-breakpad \
     --disable-background-networking \
     --disable-component-update \
     --disable-default-apps \
     --disable-extensions \
-    --single-process \
-    --no-zygote
+    --disable-gpu
 
 if [ -n "${ABP_DISABLE_SPOOFING}" ]; then
     set -- "$@" --disable-spoofing="${ABP_DISABLE_SPOOFING}"
@@ -135,5 +133,8 @@ if [ -n "${PROXY_ARGS}" ]; then
     # shellcheck disable=SC2086
     set -- "$@" ${PROXY_ARGS}
 fi
+
+# Suppress dbus connection attempts (no system bus in unikernel)
+export DBUS_SESSION_BUS_ADDRESS=/dev/null
 
 exec "$@"
