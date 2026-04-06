@@ -116,7 +116,15 @@ set -- "${ABP_BINARY}" \
     --abp-window-size="${ABP_WINDOW_SIZE}" \
     --disable-sync \
     --no-first-run \
-    --lang=en-US
+    --lang=en-US \
+    --disable-features=dbus \
+    --disable-breakpad \
+    --disable-background-networking \
+    --disable-component-update \
+    --disable-default-apps \
+    --disable-extensions \
+    --single-process \
+    --no-zygote
 
 if [ -n "${ABP_DISABLE_SPOOFING}" ]; then
     set -- "$@" --disable-spoofing="${ABP_DISABLE_SPOOFING}"
