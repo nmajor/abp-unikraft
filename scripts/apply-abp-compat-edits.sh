@@ -46,8 +46,8 @@ for db_file in "${ABP_DIR}/abp_network_database.cc" "${ABP_DIR}/abp_history_data
         # Before: Database(DatabaseOptions()..., Tag("ABP"))
         # After:  Database(DatabaseOptions()...)
         sed -i '/sql::Database::Tag("ABP")/d' "${db_file}"
-        # Remove trailing comma from the options line that preceded the Tag
-        sed -i 's/\.set_exclusive_locking(false),/.set_exclusive_locking(false)/' "${db_file}"
+        # The deleted Tag line also carried the closing ); of make_unique — add it back.
+        sed -i 's/\.set_exclusive_locking(false),/.set_exclusive_locking(false));/' "${db_file}"
         echo "  OK   removed sql::Database::Tag from $(basename "${db_file}")"
         APPLIED=$((APPLIED + 1))
     else
@@ -164,10 +164,11 @@ for i, line in enumerate(lines):
 stub = [
     '',
     '// ABP compat: stub icons for headless mode (originals not in this build).',
+    '// Cr142: VectorIcon() default ctor is private; use 3-arg public ctor with empty data.',
     'namespace {',
-    'const gfx::VectorIcon kAbpHumanIcon{};',
-    'const gfx::VectorIcon kAbpCdpIcon{};',
-    'const gfx::VectorIcon kAbpRobotIcon{};',
+    'const gfx::VectorIcon kAbpHumanIcon{nullptr, 0u, "abp_human"};',
+    'const gfx::VectorIcon kAbpCdpIcon{nullptr, 0u, "abp_cdp"};',
+    'const gfx::VectorIcon kAbpRobotIcon{nullptr, 0u, "abp_robot"};',
     '}  // namespace',
     '',
 ]
