@@ -41,14 +41,43 @@ for db_file in "${ABP_DIR}/abp_network_database.cc" "${ABP_DIR}/abp_history_data
         SKIPPED=$((SKIPPED + 1))
         continue
     fi
-    if grep -q 'sql::Database::Tag("ABP")' "${db_file}"; then
-        # Remove the Tag("ABP") argument from the Database constructor.
-        # Before: Database(DatabaseOptions()..., Tag("ABP"))
-        # After:  Database(DatabaseOptions()...)
-        sed -i '/sql::Database::Tag("ABP")/d' "${db_file}"
-        # The deleted Tag line also carried the closing ); of make_unique — add it back.
-        sed -i 's/\.set_exclusive_locking(false),/.set_exclusive_locking(false));/' "${db_file}"
-        echo "  OK   removed sql::Database::Tag from $(basename "${db_file}")"
+    if grep -q 'sql::Database::Tag(' "${db_file}"; then
+        # Remove the Tag(...) argument from the Database constructor using Python.
+        # The Tag line typically also holds the closing ); of make_unique, so after
+        # deleting it we find the previous non-empty line (which ends with a comma)
+        # and replace that comma with ); to close the constructor call properly.
+        # This is robust regardless of which DatabaseOptions method is last.
+        python3 - "${db_file}" << 'PYEOF'
+import sys
+
+filepath = sys.argv[1]
+with open(filepath, 'r') as f:
+    lines = f.readlines()
+
+new_lines = []
+fixed = False
+for line in lines:
+    if 'sql::Database::Tag(' in line:
+        # Skip this line. Fix the trailing comma on the previous non-empty line.
+        for j in range(len(new_lines) - 1, -1, -1):
+            stripped = new_lines[j].rstrip('\n').rstrip('\r').rstrip()
+            if stripped:  # non-empty line
+                if stripped.endswith(','):
+                    new_lines[j] = stripped[:-1] + ');\n'
+                fixed = True
+                break
+    else:
+        new_lines.append(line)
+
+with open(filepath, 'w') as f:
+    f.writelines(new_lines)
+
+basename = filepath.split('/')[-1]
+if fixed:
+    print(f"  OK   removed sql::Database::Tag from {basename}")
+else:
+    print(f"  WARN sql::Database::Tag found but fix not applied in {basename}")
+PYEOF
         APPLIED=$((APPLIED + 1))
     else
         echo "  SKIP  sql::Database::Tag already fixed in $(basename "${db_file}")"
@@ -126,10 +155,11 @@ fi
 # ---------------------------------------------------------------------------
 ICON_VIEW="${ABP_DIR}/abp_input_mode_icon_view.cc"
 if [ -f "${ICON_VIEW}" ]; then
-    if grep -q 'ABP compat: stub icons' "${ICON_VIEW}"; then
-        echo "  SKIP  icon stubs already present in abp_input_mode_icon_view.cc"
-        SKIPPED=$((SKIPPED + 1))
-    else
+    if grep -q 'kAbpHumanIcon{}' "${ICON_VIEW}" 2>/dev/null; then
+        # The original ABP source uses empty-brace init: const gfx::VectorIcon kAbpHumanIcon{};
+        # In Chromium 142 the default VectorIcon() constructor is private.
+        # Fix: replace {} with the 3-arg public constructor in-place so the
+        # originals are actually fixed (not shadowed by duplicate stubs).
         python3 - "${ICON_VIEW}" << 'PYEOF'
 import sys
 
@@ -137,52 +167,27 @@ filepath = sys.argv[1]
 with open(filepath, 'r') as f:
     content = f.read()
 
-# Ensure the vector_icon_types header is included.
-if 'vector_icon_types.h' not in content:
-    first_include = content.find('#include')
-    if first_include >= 0:
-        eol = content.find('\n', first_include)
-        content = (content[:eol + 1]
-                   + '#include "ui/gfx/vector_icon_types.h"  // ABP compat\n'
-                   + content[eol + 1:])
-
-# Find the end of the #include block: the first line after all
-# consecutive #include / comment / blank lines.
-lines = content.split('\n')
-insert_idx = 0
-in_includes = False
-for i, line in enumerate(lines):
-    stripped = line.strip()
-    if stripped.startswith('#include') or stripped.startswith('#if') or stripped.startswith('#endif') or stripped.startswith('#define') or stripped.startswith('#ifndef') or stripped.startswith('#pragma'):
-        in_includes = True
-        insert_idx = i + 1
-    elif in_includes and (stripped == '' or stripped.startswith('//')):
-        insert_idx = i + 1
-    elif in_includes:
-        break
-
-stub = [
-    '',
-    '// ABP compat: stub icons for headless mode (originals not in this build).',
-    '// Cr142: VectorIcon() default ctor is private; use 3-arg public ctor with empty data.',
-    'namespace {',
-    'const gfx::VectorIcon kAbpHumanIcon{nullptr, 0u, "abp_human"};',
-    'const gfx::VectorIcon kAbpCdpIcon{nullptr, 0u, "abp_cdp"};',
-    'const gfx::VectorIcon kAbpRobotIcon{nullptr, 0u, "abp_robot"};',
-    '}  // namespace',
-    '',
+replacements = [
+    ('kAbpHumanIcon{}', 'kAbpHumanIcon{nullptr, 0u, "abp_human"}'),
+    ('kAbpCdpIcon{}',   'kAbpCdpIcon{nullptr, 0u, "abp_cdp"}'),
+    ('kAbpRobotIcon{}', 'kAbpRobotIcon{nullptr, 0u, "abp_robot"}'),
 ]
 
-for j, s in enumerate(stub):
-    lines.insert(insert_idx + j, s)
-
-content = '\n'.join(lines)
+for old, new in replacements:
+    if old in content:
+        content = content.replace(old, new)
+        print(f"  OK   replaced {old} with 3-arg ctor")
+    else:
+        print(f"  WARN {old} not found — already fixed or different source")
 
 with open(filepath, 'w') as f:
     f.write(content)
-print("  OK   stubbed icon resources in abp_input_mode_icon_view.cc")
+print("  OK   VectorIcon definitions fixed in abp_input_mode_icon_view.cc")
 PYEOF
         APPLIED=$((APPLIED + 1))
+    else
+        echo "  SKIP  VectorIcon {} already fixed in abp_input_mode_icon_view.cc"
+        SKIPPED=$((SKIPPED + 1))
     fi
 else
     echo "  SKIP  abp_input_mode_icon_view.cc not found"
