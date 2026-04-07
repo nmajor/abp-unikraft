@@ -470,6 +470,8 @@ ABP_TARGETS=""
 for f in "${SRC_DIR}/chrome/browser/abp/"*.cc; do
     [ -f "$f" ] || continue
     fname="$(basename "$f" .cc)"
+    # Skip test files — they link into separate test binaries, not the chrome target
+    case "${fname}" in *_browsertest|*_unittest|*_test) continue ;; esac
     ABP_TARGETS="${ABP_TARGETS} obj/chrome/browser/abp/abp/${fname}.o"
 done
 if [ -n "${ABP_TARGETS}" ]; then
