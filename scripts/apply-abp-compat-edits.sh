@@ -46,41 +46,53 @@ if '"ABP"' in content:
     print("  ABP already present")
     sys.exit(0)
 
-# Strategy 1: Find the consteval Tag constructor body.
-# It typically has a series of string comparisons or a validation function.
-# Look for patterns like: if (tag == "SomeTag") return;
-# or NOTREACHED / "Invalid database tag"
+# Step 1: Always extract the parameter name from the consteval Tag constructor
+# signature first, before hunting for the injection point. This avoids the
+# prior bug where branches 1/2 skipped param extraction entirely and fell
+# back to the literal string 'tag' (which is undeclared in many TUs).
+param_name = None
+ctor_match = re.search(r'consteval\s+Tag\s*\(([^)]*)\)', content)
+if ctor_match:
+    sig = ctor_match.group(1)
+    # Match: [const char* name] or [std::string_view name] or just [const char* name]
+    pm = re.search(r'[\w:]+\s*\*?\s*(\w+)\s*$', sig.strip())
+    if pm:
+        param_name = pm.group(1)
 
-# First try: find "Invalid database tag" diagnostic
+# Step 2: Find the injection point — the line just before the validation failure.
 invalid_idx = content.find('Invalid database tag')
 if invalid_idx < 0:
-    # Try alternate patterns
     invalid_idx = content.find('NOTREACHED')
-    if invalid_idx < 0:
-        # Try finding the consteval constructor
-        match = re.search(r'consteval\s+Tag\s*\(', content)
-        if match:
-            # Find the opening brace of the constructor body
-            brace_start = content.find('{', match.end())
-            if brace_start >= 0:
-                # Extract the actual parameter name from the constructor signature
-                sig = content[match.end():brace_start]
-                param_match = re.search(r'(\w+)\s*\)\s*(?:noexcept\s*)?$', sig.strip())
-                _ctor_param = param_match.group(1) if param_match else None
-                invalid_idx = brace_start + 1  # Insert at start of body
-        else:
-            print("  WARN  Could not find Tag validation in sql/database.h")
-            # Last resort: find 'class Tag' and dump context for debugging
-            tag_class = content.find('class Tag')
-            if tag_class >= 0:
-                print("  Context around 'class Tag':")
-                print(content[tag_class:tag_class+500])
-            sys.exit(0)
+if invalid_idx < 0:
+    # Fall back: inject at the opening brace of the constructor body
+    if ctor_match:
+        brace_start = content.find('{', ctor_match.end())
+        if brace_start >= 0:
+            invalid_idx = brace_start + 1
+if invalid_idx < 0:
+    print("  WARN  Could not find Tag validation in sql/database.h")
+    tag_class = content.find('class Tag')
+    if tag_class >= 0:
+        print("  Context around 'class Tag':")
+        print(content[tag_class:tag_class+500])
+    sys.exit(0)
 
-# Walk backwards to find the start of the line
+# Step 3: If we still have no param name, scan preceding context as last resort.
+if param_name is None:
+    line_start_tmp = content.rfind('\n', 0, invalid_idx) + 1
+    preceding = content[max(0, line_start_tmp - 500):line_start_tmp]
+    m = re.search(r'(\w+)\s*==\s*"', preceding)
+    if m:
+        param_name = m.group(1)
+
+if not param_name:
+    print("  WARN  Could not determine Tag constructor parameter name; dumping context:")
+    if ctor_match:
+        print(content[ctor_match.start():ctor_match.start()+300])
+    sys.exit(1)
+
+# Walk backwards to find the start of the line for indentation.
 line_start = content.rfind('\n', 0, invalid_idx) + 1
-
-# Detect indentation
 rest = content[line_start:]
 indent = ''
 for ch in rest:
@@ -91,35 +103,14 @@ for ch in rest:
 if not indent:
     indent = '      '
 
-# Insert an ABP tag check. We use string comparison that works in consteval.
-# Try to match the style of existing checks in the file.
-# Look backwards for an existing check pattern to match style.
-preceding = content[max(0, line_start-500):line_start]
-
-# Determine the parameter name: prefer what we extracted from the constructor
-# signature; fall back to scanning the surrounding code for a known name.
-param_name = locals().get('_ctor_param') or None
-if param_name is None:
-    # Scan preceding context for an identifier used in comparisons
-    m = re.search(r'(\w+)\s*==\s*"', preceding)
-    param_name = m.group(1) if m else 'tag'
-
-if 'strcmp' in preceding or f'{param_name} ==' in preceding or 'tag ==' in preceding:
-    # Uses == style
-    check = f'{indent}if ({param_name} == "ABP") return;\n'
-elif 'operator()' in preceding:
-    # Might be a functor pattern
-    check = f'{indent}if ({param_name} == "ABP") return;\n'
-else:
-    # Char-by-char comparison using the extracted parameter name
-    p = param_name
-    check = f'{indent}if ({p}[0] == \'A\' && {p}[1] == \'B\' && {p}[2] == \'P\' && {p}[3] == \'\\0\') return;\n'
+# Use simple == comparison (works in consteval C++20 with const char* and string_view).
+check = f'{indent}if ({param_name} == "ABP") return;\n'
 
 content = content[:line_start] + check + content[line_start:]
 
 with open(filepath, 'w') as f:
     f.write(content)
-print("  OK   added ABP to Tag whitelist in sql/database.h")
+print(f"  OK   added ABP to Tag whitelist in sql/database.h (param: {param_name})")
 PYEOF
         APPLIED=$((APPLIED + 1))
 
