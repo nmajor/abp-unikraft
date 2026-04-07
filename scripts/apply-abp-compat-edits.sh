@@ -28,64 +28,38 @@ APPLIED=0
 SKIPPED=0
 
 # ---------------------------------------------------------------------------
-# Fix 1: Register "ABP" in sql::Database::Tag whitelist (sql/database.h)
+# Fix 1: sql::Database constructor — avoid consteval Tag entirely
 #
-# In Chromium 142, sql::Database::Tag is consteval and validates against a
-# hardcoded list of known tags.  Unrecognised tags hit NOTREACHED() which
-# is not constexpr, so compilation fails.  We insert a character-by-character
-# check for "ABP" just before the NOTREACHED line.
+# In Chromium 142, sql::Database::Tag is consteval with a hardcoded whitelist.
+# "ABP" isn't in the whitelist. Rather than patching the core sql/database.h
+# header (which breaks the entire build), we replace the ABP database
+# constructor calls with the simpler Database(DatabaseOptions) overload that
+# doesn't require a Tag at all.
 # ---------------------------------------------------------------------------
-SQL_DB_H="${SRC_DIR}/sql/database.h"
-if [ -f "${SQL_DB_H}" ]; then
-    if grep -q '"ABP"' "${SQL_DB_H}" || grep -q "'A' && tag\[1\] == 'B'" "${SQL_DB_H}"; then
-        echo "  SKIP  ABP tag already registered in sql/database.h"
+for db_file in "${ABP_DIR}/abp_network_database.cc" "${ABP_DIR}/abp_history_database.cc"; do
+    if [ ! -f "${db_file}" ]; then
         SKIPPED=$((SKIPPED + 1))
-    else
-        python3 - "${SQL_DB_H}" << 'PYEOF'
-import sys
-
-filepath = sys.argv[1]
-with open(filepath, 'r') as f:
-    content = f.read()
-
-# Find the NOTREACHED inside the Tag constructor.
-# The diagnostic "Invalid database tag" is on or near the NOTREACHED line.
-diag_idx = content.find('Invalid database tag')
-if diag_idx < 0:
-    print("  WARN  'Invalid database tag' not found in sql/database.h")
-    sys.exit(0)
-
-# Walk backwards to find the start of the NOTREACHED line.
-notreached_line_start = content.rfind('\n', 0, diag_idx) + 1
-
-# Grab indentation from the NOTREACHED line.
-rest = content[notreached_line_start:]
-indent = ''
-for ch in rest:
-    if ch in (' ', '\t'):
-        indent += ch
-    else:
-        break
-if not indent:
-    indent = '        '
-
-# Insert a constexpr-safe character comparison for "ABP" just before NOTREACHED.
-# We use character-by-character comparison because consteval context
-# cannot call strcmp/memcmp.
-check = (f'{indent}if (tag[0] == \'A\' && tag[1] == \'B\' && '
-         f'tag[2] == \'P\' && tag[3] == \'\\0\') return;\n')
-
-content = content[:notreached_line_start] + check + content[notreached_line_start:]
-
-with open(filepath, 'w') as f:
-    f.write(content)
-print("  OK   registered ABP tag in sql/database.h")
-PYEOF
-        APPLIED=$((APPLIED + 1))
+        continue
     fi
-else
-    echo "  SKIP  sql/database.h not found"
-    SKIPPED=$((SKIPPED + 1))
+    if grep -q 'sql::Database::Tag("ABP")' "${db_file}"; then
+        # Remove the Tag("ABP") argument from the Database constructor.
+        # Before: Database(DatabaseOptions()..., Tag("ABP"))
+        # After:  Database(DatabaseOptions()...)
+        sed -i '/sql::Database::Tag("ABP")/d' "${db_file}"
+        # Remove trailing comma from the options line that preceded the Tag
+        sed -i 's/\.set_exclusive_locking(false),/.set_exclusive_locking(false)/' "${db_file}"
+        echo "  OK   removed sql::Database::Tag from $(basename "${db_file}")"
+        APPLIED=$((APPLIED + 1))
+    else
+        echo "  SKIP  sql::Database::Tag already fixed in $(basename "${db_file}")"
+        SKIPPED=$((SKIPPED + 1))
+    fi
+done
+# Also undo any prior damage to sql/database.h from earlier repair attempts
+SQL_DB_H="${SRC_DIR}/sql/database.h"
+if [ -f "${SQL_DB_H}" ] && grep -q "tag\[0\] == 'A'" "${SQL_DB_H}" 2>/dev/null; then
+    echo "  Reverting prior ABP tag patch from sql/database.h..."
+    sed -i "/tag\[0\] == 'A' && tag\[1\] == 'B'/d" "${SQL_DB_H}"
 fi
 
 # ---------------------------------------------------------------------------
