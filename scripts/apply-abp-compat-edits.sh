@@ -60,9 +60,13 @@ if invalid_idx < 0:
         # Try finding the consteval constructor
         match = re.search(r'consteval\s+Tag\s*\(', content)
         if match:
-            # Find the closing brace of this function
+            # Find the opening brace of the constructor body
             brace_start = content.find('{', match.end())
             if brace_start >= 0:
+                # Extract the actual parameter name from the constructor signature
+                sig = content[match.end():brace_start]
+                param_match = re.search(r'(\w+)\s*\)\s*(?:noexcept\s*)?$', sig.strip())
+                _ctor_param = param_match.group(1) if param_match else None
                 invalid_idx = brace_start + 1  # Insert at start of body
         else:
             print("  WARN  Could not find Tag validation in sql/database.h")
@@ -92,16 +96,24 @@ if not indent:
 # Look backwards for an existing check pattern to match style.
 preceding = content[max(0, line_start-500):line_start]
 
-if 'strcmp' in preceding or 'tag ==' in preceding:
-    # Uses strcmp or == style
-    check = f'{indent}if (tag == "ABP") return;\n'
+# Determine the parameter name: prefer what we extracted from the constructor
+# signature; fall back to scanning the surrounding code for a known name.
+param_name = locals().get('_ctor_param') or None
+if param_name is None:
+    # Scan preceding context for an identifier used in comparisons
+    m = re.search(r'(\w+)\s*==\s*"', preceding)
+    param_name = m.group(1) if m else 'tag'
+
+if 'strcmp' in preceding or f'{param_name} ==' in preceding or 'tag ==' in preceding:
+    # Uses == style
+    check = f'{indent}if ({param_name} == "ABP") return;\n'
 elif 'operator()' in preceding:
     # Might be a functor pattern
-    check = f'{indent}if (tag == "ABP") return;\n'
+    check = f'{indent}if ({param_name} == "ABP") return;\n'
 else:
-    # Default: simple string literal comparison
-    # In consteval context, we can compare char-by-char
-    check = f'{indent}if (tag[0] == \'A\' && tag[1] == \'B\' && tag[2] == \'P\' && tag[3] == \'\\0\') return;\n'
+    # Char-by-char comparison using the extracted parameter name
+    p = param_name
+    check = f'{indent}if ({p}[0] == \'A\' && {p}[1] == \'B\' && {p}[2] == \'P\' && {p}[3] == \'\\0\') return;\n'
 
 content = content[:line_start] + check + content[line_start:]
 
