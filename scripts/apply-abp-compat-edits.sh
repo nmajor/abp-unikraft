@@ -83,9 +83,9 @@ stub = '''
 namespace {
 const gfx::PathElement kAbpStubPath[] = {{gfx::CommandType::CLOSE}};
 const gfx::VectorIconRep kAbpStubRep[] = {{kAbpStubPath}};
-const gfx::VectorIcon kAbpHumanIcon = {kAbpStubRep, \"abp_human\"};
-const gfx::VectorIcon kAbpCdpIcon = {kAbpStubRep, \"abp_cdp\"};
-const gfx::VectorIcon kAbpRobotIcon = {kAbpStubRep, \"abp_robot\"};
+constexpr gfx::VectorIcon kAbpHumanIcon(kAbpStubRep, 1u, \"abp_human\");
+constexpr gfx::VectorIcon kAbpCdpIcon(kAbpStubRep, 1u, \"abp_cdp\");
+constexpr gfx::VectorIcon kAbpRobotIcon(kAbpStubRep, 1u, \"abp_robot\");
 }  // namespace
 '''
 lines.insert(last_inc + 1, stub)
@@ -97,6 +97,39 @@ print('  OK   added icon stubs to abp_input_mode_icon_view.cc')
         echo "  SKIP  no icon references found"
         SKIPPED=$((SKIPPED + 1))
     fi
+fi
+
+# ---------------------------------------------------------------------------
+# Fix 4: content/public/browser/popup_interceptor.h missing in Chromium 142
+#
+# AbpPopupInterceptor inherits from content::PopupInterceptor, but this
+# header was removed in Chromium 142. Create a minimal stub so the ABP code
+# compiles without requiring upstream changes.
+# ---------------------------------------------------------------------------
+POPUP_INTERCEPTOR_H="${SRC_DIR}/content/public/browser/popup_interceptor.h"
+if [ ! -f "${POPUP_INTERCEPTOR_H}" ]; then
+    cat > "${POPUP_INTERCEPTOR_H}" << 'STUB_EOF'
+// ABP compat stub: content/public/browser/popup_interceptor.h was removed in
+// Chromium 142. This minimal stub allows AbpPopupInterceptor to compile.
+#ifndef CONTENT_PUBLIC_BROWSER_POPUP_INTERCEPTOR_H_
+#define CONTENT_PUBLIC_BROWSER_POPUP_INTERCEPTOR_H_
+
+namespace content {
+
+class PopupInterceptor {
+ public:
+  virtual ~PopupInterceptor() = default;
+};
+
+}  // namespace content
+
+#endif  // CONTENT_PUBLIC_BROWSER_POPUP_INTERCEPTOR_H_
+STUB_EOF
+    echo "  OK   created popup_interceptor.h stub"
+    APPLIED=$((APPLIED + 1))
+else
+    echo "  SKIP  popup_interceptor.h already exists"
+    SKIPPED=$((SKIPPED + 1))
 fi
 
 echo "==> ABP compat edits complete. Applied: ${APPLIED}, Skipped: ${SKIPPED}"
