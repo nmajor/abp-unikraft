@@ -119,12 +119,14 @@ stub = '''
 // VECTOR_ICON_STUB_ABP — Chromium 142 compat: ABP icons not in vector_icons.h
 #include \"ui/gfx/vector_icon_types.h\"
 namespace {
-// Empty path data for stub icons (ABP runs headless, icons never rendered)
-const gfx::PathElement kAbpStubPath[] = {{gfx::CommandType::CIRCLE, 8, 8, 4}};
-const gfx::VectorIconRep kAbpStubRep[] = {{kAbpStubPath, 1}};
-const gfx::VectorIcon kAbpHumanIcon = {kAbpStubRep, 1, \"abp_human\"};
-const gfx::VectorIcon kAbpCdpIcon = {kAbpStubRep, 1, \"abp_cdp\"};
-const gfx::VectorIcon kAbpRobotIcon = {kAbpStubRep, 1, \"abp_robot\"};
+// Stub icons — ABP runs headless, icons never rendered.
+// PathElement is now a 1-arg union ({command} not {command,x,y,r}).
+// VectorIconRep/VectorIcon take spans — no explicit count arg.
+const gfx::PathElement kAbpStubPath[] = {{gfx::CommandType::CLOSE}};
+const gfx::VectorIconRep kAbpStubRep[] = {{kAbpStubPath}};
+const gfx::VectorIcon kAbpHumanIcon = {kAbpStubRep, \"abp_human\"};
+const gfx::VectorIcon kAbpCdpIcon = {kAbpStubRep, \"abp_cdp\"};
+const gfx::VectorIcon kAbpRobotIcon = {kAbpStubRep, \"abp_robot\"};
 }  // namespace
 '''
 lines.insert(last_inc + 1, stub)
