@@ -463,30 +463,18 @@ fi
 echo "  Running source preflight gauntlet..."
 bash "${PATCH_REPO}/scripts/preflight-fp-chromium-build.sh" src "${SRC_DIR}" "${PATCH_REPO}"
 
-# ABP preflight: compile only ABP files first (~2 min).
+# ABP preflight: compile ABP source_sets first (~2 min).
 # Catches compat errors immediately instead of after 4 hours of full build.
 echo "  ABP preflight compile (catching compat errors early)..."
-ABP_TARGETS=""
-for f in "${SRC_DIR}/chrome/browser/abp/"*.cc; do
-    [ -f "$f" ] || continue
-    fname="$(basename "$f" .cc)"
-    # Skip test files — they link into separate test binaries, not the chrome target
-    case "${fname}" in *_browsertest|*_unittest|*_test) continue ;; esac
-    ABP_TARGETS="${ABP_TARGETS} obj/chrome/browser/abp/abp/${fname}.o"
-done
-if [ -n "${ABP_TARGETS}" ]; then
-    # shellcheck disable=SC2086
-    if ! ninja -C "${RELEASE_DIR}" -j "${NPROC}" ${ABP_TARGETS} 2>&1; then
-        echo ""
-        echo "  *** ABP PREFLIGHT FAILED ***"
-        echo "  Fix the ABP compat errors above before running the full build."
-        echo "  This saved ~4 hours of wasted build time."
-        exit 1
-    fi
-    echo "  OK   ABP preflight compile passed"
-else
-    echo "  WARN  No ABP .cc files found for preflight"
+if ! ninja -C "${RELEASE_DIR}" -j "${NPROC}" \
+    chrome/browser/abp:abp chrome/browser/abp:switches 2>&1; then
+    echo ""
+    echo "  *** ABP PREFLIGHT FAILED ***"
+    echo "  Fix the ABP compat errors above before running the full build."
+    echo "  This saved ~4 hours of wasted build time."
+    exit 1
 fi
+echo "  OK   ABP preflight compile passed"
 
 echo "  Building with ${NPROC} cores..."
 ninja -C "${RELEASE_DIR}" -j "${NPROC}" chrome chromedriver
