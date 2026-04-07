@@ -467,11 +467,10 @@ bash "${PATCH_REPO}/scripts/preflight-fp-chromium-build.sh" src "${SRC_DIR}" "${
 # Catches compat errors immediately instead of after 4 hours of full build.
 echo "  ABP preflight compile (catching compat errors early)..."
 if ! ninja -C "${RELEASE_DIR}" -j "${NPROC}" \
-    chrome/browser/abp:abp chrome/browser/abp:switches 2>&1; then
+    chrome/browser/abp:abp chrome/browser/abp:switches 2>&1 | tee /tmp/abp-preflight.log; then
+    PREFLIGHT_ERROR="$(grep 'error:' /tmp/abp-preflight.log | head -1 | sed 's/.*error: //')"
     echo ""
-    echo "  *** ABP PREFLIGHT FAILED ***"
-    echo "  Fix the ABP compat errors above before running the full build."
-    echo "  This saved ~4 hours of wasted build time."
+    echo "  *** ABP PREFLIGHT FAILED: ${PREFLIGHT_ERROR:-unknown error} ***"
     exit 1
 fi
 echo "  OK   ABP preflight compile passed"
